@@ -83,8 +83,8 @@
 *   **Phase 3: Advanced `reference` (Semantic Search - Recommended)**
     *   Integrate local embedding model (`fastembed-rs` - `EmbeddingGenerator` implemented).
     *   Setup local Vector DB (Qdrant - `qdrant-client` and `VectorDb` struct implemented).
-    *   Implement embedding generation pipeline for parsed docs (TODO).
-    *   Implement similarity search logic (TODO - Use `VectorDb::search` in Application layer).
+    *   Implement embedding generation pipeline for parsed docs (In Progress - Handling Errors).
+    *   Implement similarity search logic (In Progress - Handling Errors - Use `VectorDb::search` in Application layer).
     *   Update MCP `Tool` for semantic search (TODO).
     *   Add tests for embedding/semantic search (`VectorDb` integration tests using `testcontainers` implemented; pipeline tests needed).
     *   **Goal:** Semantic search over `mc` docs via natural language query.
@@ -99,6 +99,6 @@
 
 1.  Confirm final acceptance of Rust and internal Vector DB approach.
 2.  Set up the initial Cargo workspace structure.
-3.  Begin implementation of Phase 1, focusing on the MCP server skeleton and `forge test` execution.
+3.  Begin implementation of Phase 1, focusing on the MCP server skeleton and `forge test` execution. -> Phase 2 completed -> Phase 3 in progress (`VectorDb` implemented and tested, experiencing errors in Application layer integration).
 4.  Establish CI/CD pipeline.
 5.  Monitor MCP specification and `metacontract`  evolution for necessary adaptations.
