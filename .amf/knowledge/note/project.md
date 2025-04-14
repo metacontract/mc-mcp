@@ -34,7 +34,7 @@
 *   **Layers:**
     *   **`mc-mcp-domain`:** Core business logic, entities (`mc` project, doc sections), value objects, repository traits (`trait ProjectRepository`, `trait DocumentRepository`), service traits (`trait ToolService`, `trait ReferenceService`), domain errors. No external dependencies other than core Rust/std.
     *   **`mc-mcp-application`:** Use case implementations (`struct ToolServiceImpl`), DTOs, application errors (`thiserror`). Depends only on `mc-mcp-domain`. Injects repository traits.
-    *   **`mc-mcp-infrastructure`:** Concrete repository implementations (`struct FileSystemProjectRepository`, `struct VectorDBDocumentRepository`), Markdown parsing, Vector DB client (`qdrant-client`), embedding generation (`fastembed-rs`), Foundry command execution (`tokio::process`), filesystem interaction (`tokio::fs`, `fs_extra`). Implements domain traits. Depends on `mc-mcp-domain` and external crates.
+    *   **`mc-mcp-infrastructure`:** Concrete repository implementations (`struct FileSystemProjectRepository`, `struct VectorDBDocumentRepository`), Markdown parsing (`comrak`), Vector DB client (`qdrant-client` via `VectorDb` struct with `new`, `initialize_collection`, `upsert_documents`, `search` methods), embedding generation (`fastembed-rs` via `EmbeddingGenerator` struct), Foundry command execution (`tokio::process`), filesystem interaction (`tokio::fs`, `fs_extra`). Implements domain traits. Depends on `mc-mcp-domain` and external crates. Includes integration tests using `testcontainers` for Qdrant.
     *   **`mc-mcp-server` (Binary Crate):** MCP protocol handling (`modelcontextprotocol-rust-sdk`), transport layer (`stdio` primary), mapping MCP requests to application use cases, Composition Root (manual DI), logging/config setup. Depends on `mc-mcp-application` and MCP SDK.
 *   **Dependency Rule:** Strictly inwards (Presentation -> Application -> Domain <- Infrastructure).
 
@@ -60,8 +60,9 @@
 *   **Configuration:** Use `figment` for flexible loading from files (e.g., TOML) and environment variables. Use `serde` for defining config structures.
 *   **Logging:** Use `tracing` with `tracing-subscriber` for structured, asynchronous logging. Log to stderr for `stdio` transport.
 *   **Error Handling:** Use `Result<T, E>` extensively. Define custom error types per layer using `thiserror`. Propagate errors clearly. Avoid `panic!`.
-*   **Data Persistence:** Use the local file system for caching. Use the chosen Vector DB (Qdrant/LanceDB) for `reference` function indexes. Consider SQLite (`rusqlite`) if a non-vector structured index is needed.
+*   **Data Persistence:** Use the local file system for caching. Use the chosen Vector DB (Qdrant via `qdrant-client`) for `reference` function indexes. Consider SQLite (`rusqlite`) if a non-vector structured index is needed.
 *   **MCP Transport:** Implement **`stdio`** as the primary transport mechanism . Consider adding `SSE` support later only if a clear remote/shared use case emerges, acknowledging the added complexity and security implications .
+*   **Testing:** Employ Test-Driven Development (TDD) principles. Use standard Rust unit tests (`#[test]`). For infrastructure components interacting with external systems (like Qdrant), use integration tests (`#[cfg(test)]`) leveraging `testcontainers` to run services (e.g., Qdrant) in Docker during test execution. Use `serial_test` to manage tests relying on shared resources like containers or environment variables.
 
 ## 6. Project Roadmap (Phased Approach)
 
@@ -80,12 +81,12 @@
     *   Add tests for parsing/searching.
     *   **Goal:** Search `mc` docs via keyword/structure.
 *   **Phase 3: Advanced `reference` (Semantic Search - Recommended)**
-    *   Integrate local embedding model (`fastembed-rs`).
-    *   Setup local Vector DB (Qdrant/LanceDB).
-    *   Implement embedding generation pipeline for parsed docs.
-    *   Implement similarity search logic.
-    *   Update MCP `Tool` for semantic search.
-    *   Add tests for embedding/semantic search.
+    *   Integrate local embedding model (`fastembed-rs` - `EmbeddingGenerator` implemented).
+    *   Setup local Vector DB (Qdrant - `qdrant-client` and `VectorDb` struct implemented).
+    *   Implement embedding generation pipeline for parsed docs (TODO).
+    *   Implement similarity search logic (TODO - Use `VectorDb::search` in Application layer).
+    *   Update MCP `Tool` for semantic search (TODO).
+    *   Add tests for embedding/semantic search (`VectorDb` integration tests using `testcontainers` implemented; pipeline tests needed).
     *   **Goal:** Semantic search over `mc` docs via natural language query.
 *   **Phase 4: `tool` Expansion & Polish**
     *   Implement remaining `tool` functions (setup, deploy, upgrade).

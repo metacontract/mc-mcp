@@ -8,3 +8,9 @@
 # Added by cargo
 
 /target
+
+# FastEmbed model cache
+.fastembed_cache/
+
+# VS Code settings
+.vscode/
