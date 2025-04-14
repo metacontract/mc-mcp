@@ -1878,6 +1878,7 @@ dependencies = [
  "log",
  "mc-mcp-domain",
  "mc-mcp-infrastructure",
+ "qdrant-client",
  "serde_json",
  "tokio",
 ]

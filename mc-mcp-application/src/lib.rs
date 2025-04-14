@@ -1,28 +1,20 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
-
-use mc_mcp_domain::documents::{DocumentPayload, DocumentChunk, DocumentChunkMetadata, insert, load_documents, SimpleDocumentIndex, EmbeddingModel};
-use mc_mcp_domain::reference::{SearchResult};
-use mc_mcp_domain::service_interfaces::DocumentIndexService;
-use mc_mcp_domain::service_traits::{EmbeddingService, VectorStoreService};
-use std::error::Error;
+use mc_mcp_domain::reference::{SearchQuery, SearchResult};
+use mc_mcp_infrastructure::{
+    EmbeddingGenerator,
+    VectorDb,
+    DocumentToUpsert,
+    DocumentPayload,
+    load_documents,
+};
+use qdrant_client::qdrant::{
+    point_id::PointIdOptions,
+    value::Kind as QdrantValueKind,
+};
+use std::path::PathBuf;
 use std::sync::Arc;
-use qdrant_client::qdrant::{self, PointId, ScoredPoint};
-use qdrant_client::qdrant::point_id::PointIdOptions;
-use serde_json::Value;
+use anyhow::{anyhow, Result};
 use log::{info, error, warn};
+use serde_json::Value;
 
 // Define the interface for reference-related operations
 #[async_trait::async_trait]
@@ -138,7 +130,8 @@ impl ReferenceService for ReferenceServiceImpl {
         // 3. Convert ScoredPoint results to domain::SearchResult
         let domain_results: Vec<SearchResult> = search_results.into_iter()
             .filter_map(|scored_point| {
-                let document_id = match scored_point.id?.point_id_options? {
+                // Clone scored_point.id before using `?` to avoid moving the value.
+                let document_id = match scored_point.id.clone()?.point_id_options? {
                     PointIdOptions::Uuid(uuid_str) => uuid_str,
                     PointIdOptions::Num(num) => num.to_string(), // Consider how to handle u64 IDs if necessary
                 };
@@ -146,51 +139,76 @@ impl ReferenceService for ReferenceServiceImpl {
                 // Convert Qdrant payload (HashMap<String, QdrantValue>) to serde_json::Value::Object
                 // Check if payload is not empty before processing
                 if !scored_point.payload.is_empty() {
-                    let payload_map = scored_point.payload; // Directly use the payload, it's not an Option
+                    let payload_map = scored_point.payload.clone(); // Clone needed here as scored_point is used later for id/score
                     let mut json_map = serde_json::Map::new();
 
                     for (key, value) in payload_map {
+                        // Directly convert QdrantValueKind to serde_json::Value
                         let json_value = match value.kind {
-                            Some(qdrant_client::qdrant::value::Kind::NullValue(_)) => Ok(serde_json::Value::Null),
-                            Some(qdrant_client::qdrant::value::Kind::BoolValue(b)) => Ok(serde_json::Value::Bool(b)),
-                            Some(qdrant_client::qdrant::value::Kind::DoubleValue(d)) => Ok(serde_json::Number::from_f64(d).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null)),
-                            Some(qdrant_client::qdrant::value::Kind::IntegerValue(i)) => Ok(serde_json::Value::Number(i.into())),
-                            Some(qdrant_client::qdrant::value::Kind::StringValue(s)) => Ok(serde_json::Value::String(s)),
-                            Some(qdrant_client::qdrant::value::Kind::ListValue(_)) => {
-                                log::warn!("ListValue conversion not fully implemented yet for point ID {:?}", scored_point.id);
-                                Ok(serde_json::Value::Null)
+                            Some(QdrantValueKind::NullValue(_)) => serde_json::Value::Null,
+                            Some(QdrantValueKind::BoolValue(b)) => serde_json::Value::Bool(b),
+                            Some(QdrantValueKind::DoubleValue(d)) => {
+                                // Safely convert f64 to JSON Number, handling non-finite values
+                                serde_json::Number::from_f64(d)
+                                    .map(serde_json::Value::Number)
+                                    .unwrap_or_else(|| {
+                                        warn!("Could not convert non-finite f64 to JSON number: {} for key '{}' in point ID {:?}", d, key, scored_point.id);
+                                        serde_json::Value::Null // Convert non-finite numbers to Null
+                                    })
                             }
-                            Some(qdrant_client::qdrant::value::Kind::StructValue(_)) => {
-                                log::warn!("StructValue conversion not fully implemented yet for point ID {:?}", scored_point.id);
-                                Ok(serde_json::Value::Null)
+                            Some(QdrantValueKind::IntegerValue(i)) => serde_json::Value::Number(i.into()),
+                            Some(QdrantValueKind::StringValue(s)) => serde_json::Value::String(s),
+                            Some(QdrantValueKind::ListValue(_)) | Some(QdrantValueKind::StructValue(_)) => {
+                                // Log unsupported types and convert to Null
+                                warn!("Unsupported Qdrant value kind (List/Struct) for key '{}' in point ID {:?}", key, scored_point.id);
+                                serde_json::Value::Null
                             }
-                            None => Ok(serde_json::Value::Null),
-                        }?;
+                            None => serde_json::Value::Null, // Handle case where value.kind is None
+                        };
                         json_map.insert(key, json_value);
                     }
 
-                    match serde_json::to_value(json_map) {
-                        Ok(json_value) => {
-                            match serde_json::from_value::<DocumentPayload>(json_value) {
-                                Ok(payload) => Some(SearchResult {
-                                    file_path: payload.file_path,
-                                    score: scored_point.score,
-                                    // fragment: None,
-                                }),
-                                Err(e) => {
-                                    log::error!("Failed to deserialize DocumentPayload from converted JSON for point ID {:?}: {}", scored_point.id, e);
-                                    None
-                                }
-                            }
-                        }
+                    // Convert the constructed serde_json::Map to serde_json::Value
+                    let intermediate_json_value = Value::Object(json_map);
+
+                    // Attempt to deserialize into DocumentPayload
+                    match serde_json::from_value::<DocumentPayload>(intermediate_json_value.clone()) { // Clone intermediate value
+                        Ok(payload) => {
+                            // Need to extract file_path from DocumentPayload, not SearchResult fields directly
+                            // Prefix with underscore as it seems unused after assignment. Re-evaluate if it's needed.
+                            let _point_id_str = match scored_point.id.clone().and_then(|id| id.point_id_options) {
+                                Some(PointIdOptions::Uuid(s)) => s,
+                                Some(PointIdOptions::Num(n)) => n.to_string(),
+                                None => "<unknown_id>".to_string(),
+                            };
+
+                            Some(SearchResult {
+                                // file_path field name needs adjustment based on SearchResult definition
+                                // Use payload.file_path or whatever is correct
+                                file_path: payload.file_path, // Corrected: Use DocumentPayload's file_path
+                                score: scored_point.score,
+                            })
+                        },
                         Err(e) => {
-                            log::error!("Failed to convert Qdrant payload to JSON for point ID {:?}: {}", scored_point.id, e);
+                            // Prefix with underscore as it seems unused after assignment.
+                            let _point_id_str = match scored_point.id.clone().and_then(|id| id.point_id_options) {
+                                Some(PointIdOptions::Uuid(s)) => s,
+                                Some(PointIdOptions::Num(n)) => n.to_string(),
+                                None => "<unknown_id>".to_string(),
+                            };
+                            error!("Failed to deserialize DocumentPayload from converted JSON for point ID {}: {}. JSON was: {}", document_id, e, intermediate_json_value); // Use document_id captured earlier
                             None
                         }
                     }
                 } else {
                     // Log or handle cases where payload is empty or not requested
-                    info!("Point {} has no payload, skipping.", document_id);
+                    // Prefix with underscore as it seems unused after assignment.
+                    let _point_id_str = match scored_point.id.clone().and_then(|id| id.point_id_options) {
+                        Some(PointIdOptions::Uuid(s)) => s,
+                        Some(PointIdOptions::Num(n)) => n.to_string(),
+                        None => "<unknown_id>".to_string(),
+                    };
+                    info!("Point {} has no payload, skipping.", document_id); // Use document_id captured earlier
                     None
                 }
             })
@@ -212,6 +230,8 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
     use uuid; // Import uuid crate for test collection name
+    use testcontainers::{core::{IntoContainerPort, WaitFor}, runners::AsyncRunner, GenericImage}; // Import testcontainers items
+    use simple_logger; // Import simple_logger
 
 
     // Mock implementations or use testcontainers for integration tests
