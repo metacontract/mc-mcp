@@ -1,0 +1,14 @@
+version: "1.0"
+taskManagement: local
+assistant:
+  kind: ["Cursor", "Cline"]
+  rules:
+    - ".amf/assistant/rules/instruction.md"
+    - ".amf/assistant/rules/tech-stack/**/*.md"
+  persona: "https://github.com/aitdd/assistant/personas/zunda.md"
+  workflows:
+    - ".amf/assistant/workflows/**/*.md"
+publicDocs:
+  - "README.md"
+  - "docs/"
+  - "docs/**/*.md"
