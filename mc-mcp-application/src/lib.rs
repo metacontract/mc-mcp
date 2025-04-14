@@ -5,6 +5,7 @@ use mc_mcp_infrastructure::{
     DocumentToUpsert,
     DocumentPayload,
     load_documents,
+    EmbeddingModel,
 };
 use qdrant_client::qdrant::{
     point_id::PointIdOptions,
@@ -15,6 +16,11 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use log::{info, error, warn};
 use serde_json::Value;
+use qdrant_client::Qdrant;
+use testcontainers::{core::WaitFor, Docker, GenericContainer};
+use qdrant_client::prelude::*;
+use std::collections::HashMap;
+use uuid::Uuid;
 
 // Define the interface for reference-related operations
 #[async_trait::async_trait]
@@ -223,119 +229,125 @@ impl ReferenceService for ReferenceServiceImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mc_mcp_domain::reference::{SearchQuery, SearchResult};
-    use mc_mcp_infrastructure::{EmbeddingModel, VectorDb, Qdrant, EmbeddingGenerator, DocumentToUpsert, DocumentPayload};
+    use mc_mcp_domain::reference::SearchQuery;
+    use mc_mcp_infrastructure::{EmbeddingModel, VectorDb, EmbeddingGenerator};
+    use qdrant_client::Qdrant;
     use std::sync::Arc;
     use tempfile::tempdir;
     use std::fs::File;
     use std::io::Write;
-    use uuid; // Import uuid crate for test collection name
-    use testcontainers::{core::{IntoContainerPort, WaitFor}, runners::AsyncRunner, GenericImage}; // Import testcontainers items
-    use simple_logger; // Import simple_logger
+    use testcontainers::{core::WaitFor, Docker, GenericContainer};
+    use qdrant_client::prelude::*;
+    use std::collections::HashMap;
 
+    const QDRANT_IMAGE: &str = "qdrant/qdrant";
+    const QDRANT_TAG: &str = "latest";
+    const QDRANT_GRPC_PORT: u16 = 6334;
+    const EMBEDDING_DIM: u64 = 768;
 
-    // Mock implementations or use testcontainers for integration tests
-    // For now, just test the structure and basic logic flow (requires mocks or further setup)
-
-    #[tokio::test]
-    async fn test_reference_service_impl_structure() {
-        // This test requires proper setup of mock/real embedder and vector_db
-        // Skipping actual execution for now, just checking structure compiles
-
-        // Example setup (replace with actual or mocks)
-        // let embedder = Arc::new(EmbeddingGenerator::new(EmbeddingModel::BGESmallENV15).expect("Failed to init embedder"));
-        // Needs a running Qdrant instance or mock client
-        // let qdrant_client = Qdrant::from_url("http://localhost:6334").build().expect("Qdrant client failed");
-        // let vector_db = Arc::new(VectorDb::new(qdrant_client, "test_collection".to_string(), 384).unwrap());
-
-        // let service = ReferenceServiceImpl::new(embedder, vector_db);
-
-        assert!(true); // Placeholder assertion
-        println!("Skipping actual execution in test_reference_service_impl_structure - requires mock/integration setup.");
+    fn qdrant_container() -> GenericContainer {
+        let env_vars = HashMap::new();
+        GenericContainer::new(QDRANT_IMAGE, QDRANT_TAG)
+            .with_exposed_port(QDRANT_GRPC_PORT)
+            .with_wait_for(WaitFor::message_on_stderr("Qdrant startup finished"))
+            .with_env_vars(env_vars)
     }
 
-     // Add more tests, including integration tests for index_documents and search_documents
-     // using testcontainers for Qdrant and potentially mock embedder or real one.
+    #[tokio::test]
+    async fn test_qdrant_generic_connection() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let docker = clients::Cli::default();
+        let qdrant_node = docker.run(qdrant_container());
+        let grpc_port = qdrant_node.get_host_port_ipv4(QDRANT_GRPC_PORT);
+        let grpc_uri = format!("http://localhost:{}", grpc_port);
+        println!("Qdrant gRPC (Generic) listening on: {}", grpc_uri);
 
-    // Helper function to setup Qdrant container (copied and adapted from infrastructure tests)
-    async fn setup_qdrant_for_app_test() -> Result<(testcontainers::ContainerAsync<testcontainers::GenericImage>, String)> {
-        use testcontainers::{core::{IntoContainerPort, WaitFor}, runners::AsyncRunner, GenericImage};
-        const QDRANT_IMAGE_NAME: &str = "qdrant/qdrant";
-        const QDRANT_IMAGE_TAG: &str = "latest";
-        const QDRANT_GRPC_PORT: u16 = 6334;
+        let client = Qdrant::from_url(&grpc_uri).build()?;
 
-        log::info!("Starting Qdrant container for app integration test...");
-        let image = GenericImage::new(QDRANT_IMAGE_NAME, QDRANT_IMAGE_TAG)
-            .with_exposed_port(QDRANT_GRPC_PORT.tcp())
-            .with_wait_for(WaitFor::message_on_stderr("Qdrant initialization completed"));
-
-        let container = image.start().await?;
-        let host_port = container.get_host_port_ipv4(QDRANT_GRPC_PORT).await?;
-        let qdrant_url = format!("http://localhost:{}", host_port);
-        log::info!("Qdrant container started, gRPC accessible at: {}", qdrant_url);
-        Ok((container, qdrant_url))
+        let collections_list = client.list_collections().await?;
+        println!("Collections: {:?}", collections_list);
+        Ok(())
     }
 
-    // Example Integration Test (requires testcontainers setup similar to infrastructure tests)
     #[tokio::test]
-    #[ignore] // Ignore by default as it requires a running Qdrant via testcontainers and network access for model download
+    #[ignore]
     async fn test_integration_index_and_search() -> Result<()> {
-        simple_logger::SimpleLogger::new().init().unwrap_or(()); // Initialize logger for tests
+        let docker = clients::Cli::default();
+        let qdrant_node = docker.run(qdrant_container());
+        let grpc_port = qdrant_node.get_host_port_ipv4(QDRANT_GRPC_PORT);
+        let grpc_uri = format!("http://localhost:{}", grpc_port);
+        info!("Qdrant for integration test listening on: {}", grpc_uri);
 
-        // 1. Setup testcontainer for Qdrant
-        let (_container, qdrant_url) = setup_qdrant_for_app_test().await?;
-         let qdrant_client = Qdrant::from_url(&qdrant_url).build()?;
-         let collection_name = format!("test_app_{}", uuid::Uuid::new_v4());
-         let vector_dim = 384; // Match embedder model (BGESmallENV15)
+        let qdrant_client = Qdrant::from_url(&grpc_uri).build()?;
 
-        // 2. Create temporary directory and test markdown file
-        let dir = tempdir()?;
-        let docs_path = dir.path().to_path_buf();
-        let file_path = docs_path.join("test_doc.md");
-        let mut file = File::create(&file_path)?;
-        writeln!(file, "# Document Title\n\nThis is the first paragraph.\n\nThis second paragraph contains important keywords for testing.")?;
-        drop(file); // Ensure file is closed
+        let collection_name = format!("test_integration_{}", Uuid::new_v4());
+        info!("Using collection name: {}", collection_name);
 
-
-        // 3. Setup Embedder and VectorDb
-        let embedder = Arc::new(EmbeddingGenerator::new(EmbeddingModel::BGESmallENV15)?);
-        let vector_db = Arc::new(VectorDb::new(qdrant_client.clone(), collection_name.clone(), vector_dim)?);
-        vector_db.initialize_collection().await?; // Initialize the collection
-
-        // 4. Create Service Instance
-        let service = ReferenceServiceImpl::new(embedder.clone(), vector_db.clone());
-
-        // 5. Index the document
-        log::info!("Starting indexing for integration test...");
-        service.index_documents(Some(docs_path)).await?;
-
-        // Optional: Verify points exist in Qdrant
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await; // Give time for indexing
-        log::info!("Checking point count after indexing...");
-        let count_response = qdrant_client.count_points(&collection_name, None, Some(true)).await?;
-        let count = count_response.result.ok_or_else(|| anyhow!("Count response missing result"))?.count;
-        assert!(count > 0, "No points were indexed (count={})", count);
-        log::info!("Found {} points after indexing.", count);
-
-
-        // 6. Search for content
-        log::info!("Performing search...");
-        let query = SearchQuery {
-            text: "important keywords".to_string(), // Query text targeting the second paragraph
-            limit: Some(1),
-            // filter: None,
+        let create_collection_request = CreateCollection {
+            collection_name: collection_name.clone(),
+            vectors_config: Some(qdrant_client::qdrant::VectorsConfig {
+                config: Some(qdrant_client::qdrant::vectors_config::Config::Params(
+                    VectorParams {
+                        size: EMBEDDING_DIM,
+                        distance: Distance::Cosine.into(),
+                        hnsw_config: None,
+                        quantization_config: None,
+                        multivector_config: None,
+                        datatype: None,
+                    }
+                ))
+            }),
+            ..Default::default()
         };
-        let results = service.search_documents(query).await?;
+        let response: CollectionOperationResponse = qdrant_client.create_collection(create_collection_request).await?;
+        if !response.result {
+             return Err(anyhow!("Failed to create Qdrant collection '{}': Time={}", collection_name, response.time));
+        }
+        info!("Successfully created collection '{}'", collection_name);
 
-        // 7. Assert results
-        assert_eq!(results.len(), 1, "Should find one matching document chunk");
-        let top_result = &results[0];
-        log::info!("Top search result: {:?}", top_result);
-        assert_eq!(top_result.file_path, file_path.to_string_lossy().to_string(), "Found document path mismatch");
-        assert!(top_result.score > 0.5, "Score should be reasonably high for relevant query (got {})", top_result.score); // Adjust threshold as needed
-        // Further assertions on fragment if implemented
+        let vector_db = VectorDb::new(qdrant_client.clone(), collection_name.clone(), EMBEDDING_DIM)?;
+        let vector_db_arc = Arc::new(vector_db);
 
-        dir.close()?; // Clean up temp directory
+        let embedder = EmbeddingGenerator::new(Some(EmbeddingModel::Default))?;
+        let embedder_arc = Arc::new(embedder);
+
+        let reference_service = ReferenceServiceImpl::new(embedder_arc.clone(), vector_db_arc.clone());
+
+        let temp_dir = tempdir()?;
+        let docs_path = temp_dir.path().to_path_buf();
+        let dummy_md_path = docs_path.join("test_doc.md");
+        let mut file = File::create(&dummy_md_path)?;
+        writeln!(file, "# Test Document\n\nThis is the first paragraph.\n\nThis is the second paragraph.")?;
+        drop(file);
+
+        reference_service.index_documents(Some(docs_path)).await?;
+        info!("Indexing completed for test.");
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let count_request = CountPoints {
+            collection_name: collection_name.clone(),
+            filter: None,
+            exact: Some(true),
+        };
+        let count_response = qdrant_client.count(count_request).await?;
+        info!("Count after indexing: {:?}", count_response);
+        let point_count = count_response.result.map_or(0, |c| c.count);
+        assert!(point_count > 0, "Expected points were not found after indexing. Count: {}", point_count);
+        assert_eq!(point_count, 2, "Expected 2 chunks based on markdown. Found: {}", point_count);
+
+        let search_query = SearchQuery {
+            text: "second paragraph".to_string(),
+            limit: Some(1),
+        };
+        let search_results = reference_service.search_documents(search_query).await?;
+        info!("Search results: {:?}", search_results);
+
+        assert!(!search_results.is_empty(), "Search returned no results");
+        assert_eq!(search_results.len(), 1, "Search should return 1 result");
+        assert!(search_results[0].file_path.ends_with("test_doc.md"), "Result file path mismatch");
+        assert!(search_results[0].score > 0.0, "Search result score should be positive");
+
+        info!("Integration test completed successfully.");
         Ok(())
     }
 }
