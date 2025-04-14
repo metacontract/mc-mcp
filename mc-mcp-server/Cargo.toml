@@ -1,0 +1,11 @@
+[package]
+name = "mc-mcp-server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1"
+rmcp = { version = "0.1", features = ["server", "transport-io"] }
+tokio = { workspace = true } # ワークスペースからTokioを継承

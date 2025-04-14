@@ -1,0 +1,6 @@
+[package]
+name = "mc-mcp-infrastructure"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

@@ -3,3 +3,8 @@
 .cursor/
 .clinerules
 .roomodes
+
+
+# Added by cargo
+
+/target
