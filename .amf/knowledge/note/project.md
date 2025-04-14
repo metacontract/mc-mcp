@@ -83,11 +83,11 @@
 *   **Phase 3: Advanced `reference` (Semantic Search - Recommended)**
     *   Integrate local embedding model (`fastembed-rs` - `EmbeddingGenerator` implemented).
     *   Setup local Vector DB (Qdrant - `qdrant-client` and `VectorDb` struct implemented).
-    *   Implement embedding generation pipeline for parsed docs (Completed - Resolved dependency issues by using GenericContainer for Qdrant tests).
+    *   Implement embedding generation pipeline for parsed docs (Completed - Pipeline logic exists).
     *   Implement similarity search logic (Completed - Integrated `VectorDb::search` in Application layer).
     *   Update MCP `Tool` for semantic search (TODO).
-    *   Add tests for embedding/semantic search (`VectorDb` integration tests using `testcontainers` implemented; pipeline tests needed).
-    *   **Goal:** Semantic search over `mc` docs via natural language query. (In Progress - Pipeline logic implemented, tests pending)
+    *   Add integration tests for the full ReferenceService pipeline (embedding generation and search). (**Blocked** - Repeated compilation errors related to `testcontainers`/`qdrant_client` dependencies despite multiple fixes. Requires further investigation/debugging.)
+    *   **Goal:** Semantic search over `mc` docs via natural language query. (In Progress - Pipeline logic implemented, tests blocked)
 *   **Phase 4: `tool` Expansion & Polish**
     *   Implement remaining `tool` functions (setup, deploy, upgrade).
     *   Improve error handling and user feedback via MCP.
@@ -103,8 +103,8 @@
 4.  Implement Phase 2. (Completed)
 5.  Implement Phase 3:
     *   `VectorDb` and `EmbeddingGenerator` implemented and tested. (Completed)
-    *   Application layer integration completed. (Completed - Resolved dependency issues and integrated `VectorDb::search`)
-    *   Add tests for the embedding generation and search pipeline. (TODO)
+    *   Application layer integration completed. (Completed)
+    *   Resolve compilation errors and complete integration tests for the ReferenceService pipeline. (**Blocked** - See Phase 3 notes.)
     *   Update the MCP `Tool` to utilize the semantic search functionality. (TODO)
 6.  Establish CI/CD pipeline. (TODO)
 7.  Monitor MCP specification and `metacontract` evolution for necessary adaptations. (Ongoing)
