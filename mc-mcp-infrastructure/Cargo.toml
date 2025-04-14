@@ -6,4 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-comrak = "0.24" # comrak クレートを追加
+comrak = "0.24"
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"

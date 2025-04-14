@@ -8,4 +8,6 @@ edition = "2021"
 [dependencies]
 async-trait = "0.1"
 rmcp = { version = "0.1", features = ["server", "transport-io"] }
-tokio = { workspace = true } # ワークスペースからTokioを継承
+tokio = { workspace = true }
+mc-mcp-infrastructure = { path = "../mc-mcp-infrastructure" }
+serde_json = { workspace = true }
