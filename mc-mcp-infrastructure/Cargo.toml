@@ -11,7 +11,7 @@ comrak = "0.24"
 walkdir = "2"
 fastembed = { version = "4", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries"] }
 log = "0.4"
-markdown = { version = "1.0.0-alpha.16", features = ["string"] }
+# markdown = { version = "1.0.0-alpha.16", features = ["string"] } # Seems unused, using comrak instead
 qdrant-client = "1.10.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -21,5 +21,4 @@ uuid = { version = "1.8", features = ["v4"] }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 testcontainers = "0.20"
-testcontainers-modules = { version = "0.8", features = ["qdrant"] }
 serial_test = "3.1"
