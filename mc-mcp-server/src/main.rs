@@ -17,10 +17,8 @@ use tokio::{
 use mc_mcp_infrastructure::{load_documents, SimpleDocumentIndex};
 use mc_mcp_application::{ReferenceServiceImpl};
 use mc_mcp_infrastructure::{EmbeddingGenerator, VectorDb, EmbeddingModel};
-use mc_mcp_infrastructure::qdrant_client::Qdrant;
+use qdrant_client::Qdrant;
 use mc_mcp_domain::reference::SearchQuery;
-use mc_mcp_application::ReferenceService;
-use serial_test::serial;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -123,135 +121,6 @@ impl MyHandler {
             }
         }
     }
-
-    pub async fn setup(&self) -> Result<Vec<Content>, String> {
-        let output_result = Command::new("git")
-            .arg("clone")
-            .arg("https://github.com/metacontract/template.git")
-            .arg("mc-template")
-            .output()
-            .await;
-
-        match output_result {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                let status_code = output.status.code().map_or("N/A".to_string(), |c| c.to_string());
-                let mut result_text = format!(
-                    "Setup Results:\nExit Code: {}\n\nStdout:\n{}",
-                    status_code,
-                    stdout
-                );
-                if !stderr.trim().is_empty() {
-                    result_text.push_str(&format!("\n[stderr]\n{}", stderr));
-                }
-                if output.status.success() {
-                    Ok(vec![Content::text(format!("プロジェクトセットアップ成功なのだ！\n{}", result_text))])
-                } else {
-                    // よくあるエラーのヒント
-                    let mut hint = String::new();
-                    if stderr.contains("not found") || stderr.contains("No such file") {
-                        hint.push_str("\n[ヒント] gitコマンドがインストールされているか確認してほしいのだ。\n");
-                    }
-                    if stderr.contains("Permission denied") {
-                        hint.push_str("\n[ヒント] パーミッションエラーなのだ。書き込み権限やsudoの必要性を確認してほしいのだ。\n");
-                    }
-                    if stderr.contains("Could not resolve host") || stderr.contains("Failed to connect") {
-                        hint.push_str("\n[ヒント] ネットワーク接続やプロキシ設定を確認してほしいのだ。\n");
-                    }
-                    Err(format!("プロジェクトセットアップ失敗なのだ…\n{}{}", result_text, hint))
-                }
-            }
-            Err(e) => {
-                let msg = format!("git cloneコマンドの実行に失敗したのだ: {}\n[ヒント] gitがインストールされているか、パスが通っているか確認してほしいのだ。", e);
-                Err(msg)
-            }
-        }
-    }
-
-    pub async fn deploy(&self) -> Result<Vec<Content>, String> {
-        let output_result = Command::new("forge")
-            .arg("script")
-            .output()
-            .await;
-
-        match output_result {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                let status_code = output.status.code().map_or("N/A".to_string(), |c| c.to_string());
-                let mut result_text = format!(
-                    "Deploy Results:\nExit Code: {}\n\nStdout:\n{}",
-                    status_code,
-                    stdout
-                );
-                if !stderr.trim().is_empty() {
-                    result_text.push_str(&format!("\n[stderr]\n{}", stderr));
-                }
-                if output.status.success() {
-                    Ok(vec![Content::text(format!("デプロイ成功なのだ！\n{}", result_text))])
-                } else {
-                    let mut hint = String::new();
-                    if stderr.contains("not found") || stderr.contains("No such file") {
-                        hint.push_str("\n[ヒント] forgeコマンドがインストールされているか確認してほしいのだ。\n");
-                    }
-                    if stderr.contains("Permission denied") {
-                        hint.push_str("\n[ヒント] パーミッションエラーなのだ。書き込み権限やsudoの必要性を確認してほしいのだ。\n");
-                    }
-                    if stderr.contains("Could not resolve host") || stderr.contains("Failed to connect") {
-                        hint.push_str("\n[ヒント] ネットワーク接続やプロキシ設定を確認してほしいのだ。\n");
-                    }
-                    Err(format!("デプロイ失敗なのだ…\n{}{}", result_text, hint))
-                }
-            }
-            Err(e) => {
-                let msg = format!("forge scriptコマンドの実行に失敗したのだ: {}\n[ヒント] forgeがインストールされているか、パスが通っているか確認してほしいのだ。", e);
-                Err(msg)
-            }
-        }
-    }
-
-    pub async fn upgrade(&self) -> Result<Vec<Content>, String> {
-        let output_result = Command::new("forge")
-            .arg("upgrade")
-            .output()
-            .await;
-
-        match output_result {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                let status_code = output.status.code().map_or("N/A".to_string(), |c| c.to_string());
-                let mut result_text = format!(
-                    "Upgrade Results:\nExit Code: {}\n\nStdout:\n{}",
-                    status_code,
-                    stdout
-                );
-                if !stderr.trim().is_empty() {
-                    result_text.push_str(&format!("\n[stderr]\n{}", stderr));
-                }
-                if output.status.success() {
-                    Ok(vec![Content::text(format!("アップグレード成功なのだ！\n{}", result_text))])
-                } else {
-                    let mut hint = String::new();
-                    if stderr.contains("not found") || stderr.contains("No such file") {
-                        hint.push_str("\n[ヒント] forgeコマンドがインストールされているか確認してほしいのだ。\n");
-                    }
-                    if stderr.contains("Permission denied") {
-                        hint.push_str("\n[ヒント] パーミッションエラーなのだ。書き込み権限やsudoの必要性を確認してほしいのだ。\n");
-                    }
-                    if stderr.contains("Could not resolve host") || stderr.contains("Failed to connect") {
-                        hint.push_str("\n[ヒント] ネットワーク接続やプロキシ設定を確認してほしいのだ。\n");
-                    }
-                    Err(format!("アップグレード失敗なのだ…\n{}{}", result_text, hint))
-                }
-            }
-            Err(e) => {
-                let msg = format!("forge upgradeコマンドの実行に失敗したのだ: {}\n[ヒント] forgeがインストールされているか、パスが通っているか確認してほしいのだ。", e);
-                Err(msg)
-            }
-        }
-    }
 }
 
 impl ServerHandler for MyHandler {
@@ -341,22 +210,13 @@ mod tests {
     use mc_mcp_infrastructure::SimpleDocumentIndex;
     use rmcp::model::{Content, CallToolRequestParam};
     use tokio::runtime::Runtime;
-    use mc_mcp_application::ReferenceService;
-    use serial_test::serial;
 
     #[tokio::test]
-    #[serial]
     async fn test_forge_test_execution() {
         // ダミーのドキュメントインデックスを作成
         let dummy_index = Arc::new(Mutex::new(SimpleDocumentIndex::new()));
-        let embedder = Arc::new(mc_mcp_infrastructure::EmbeddingGenerator::new(mc_mcp_infrastructure::EmbeddingModel::BGESmallENV15).unwrap());
-        let qdrant = mc_mcp_infrastructure::qdrant_client::Qdrant::from_url("http://localhost:6334").build().unwrap();
-        let vector_db = Arc::new(mc_mcp_infrastructure::VectorDb::new(qdrant, "test_collection".to_string(), 384).unwrap());
-        let reference_service = Arc::new(mc_mcp_application::ReferenceServiceImpl::new(embedder, vector_db));
-        let handler = MyHandler {
-            document_index: dummy_index,
-            reference_service,
-        };
+        let handler = MyHandler { document_index: dummy_index };
+
         // forge_test を実行
         let result = handler.forge_test().await;
 
@@ -381,7 +241,6 @@ mod tests {
         println!("Test assertion: Check if forge command exists and runs (or fails predictably).");
     }
 
-    /*
     #[test]
     fn test_search_docs_logic() {
         // テスト用のインデックスを作成
@@ -453,54 +312,5 @@ mod tests {
         let result = handler.call_tool(params, ctx).await;
         // 結果がエラーまたは空でなければOK（Qdrantが起動していない場合はエラーになる想定）
         assert!(result.is_ok() || result.is_err());
-    }
-    */
-
-    #[tokio::test]
-    #[serial]
-    async fn test_setup_execution() {
-        let dummy_index = Arc::new(Mutex::new(SimpleDocumentIndex::new()));
-        let embedder = Arc::new(mc_mcp_infrastructure::EmbeddingGenerator::new(mc_mcp_infrastructure::EmbeddingModel::BGESmallENV15).unwrap());
-        let qdrant = mc_mcp_infrastructure::qdrant_client::Qdrant::from_url("http://localhost:6334").build().unwrap();
-        let vector_db = Arc::new(mc_mcp_infrastructure::VectorDb::new(qdrant, "test_collection".to_string(), 384).unwrap());
-        let reference_service = Arc::new(mc_mcp_application::ReferenceServiceImpl::new(embedder, vector_db));
-        let handler = MyHandler {
-            document_index: dummy_index,
-            reference_service,
-        };
-        let result = handler.setup().await;
-        assert!(result.is_err(), "setupコマンド未実装なのでErrを返すはずなのだ");
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_deploy_execution() {
-        let dummy_index = Arc::new(Mutex::new(SimpleDocumentIndex::new()));
-        let embedder = Arc::new(mc_mcp_infrastructure::EmbeddingGenerator::new(mc_mcp_infrastructure::EmbeddingModel::BGESmallENV15).unwrap());
-        let qdrant = mc_mcp_infrastructure::qdrant_client::Qdrant::from_url("http://localhost:6334").build().unwrap();
-        let vector_db = Arc::new(mc_mcp_infrastructure::VectorDb::new(qdrant, "test_collection".to_string(), 384).unwrap());
-        let reference_service = Arc::new(mc_mcp_application::ReferenceServiceImpl::new(embedder, vector_db));
-        let handler = MyHandler {
-            document_index: dummy_index,
-            reference_service,
-        };
-        let result = handler.deploy().await;
-        assert!(result.is_err(), "deployコマンド未実装なのでErrを返すはずなのだ");
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_upgrade_execution() {
-        let dummy_index = Arc::new(Mutex::new(SimpleDocumentIndex::new()));
-        let embedder = Arc::new(mc_mcp_infrastructure::EmbeddingGenerator::new(mc_mcp_infrastructure::EmbeddingModel::BGESmallENV15).unwrap());
-        let qdrant = mc_mcp_infrastructure::qdrant_client::Qdrant::from_url("http://localhost:6334").build().unwrap();
-        let vector_db = Arc::new(mc_mcp_infrastructure::VectorDb::new(qdrant, "test_collection".to_string(), 384).unwrap());
-        let reference_service = Arc::new(mc_mcp_application::ReferenceServiceImpl::new(embedder, vector_db));
-        let handler = MyHandler {
-            document_index: dummy_index,
-            reference_service,
-        };
-        let result = handler.upgrade().await;
-        assert!(result.is_err(), "upgradeコマンド未実装なのでErrを返すはずなのだ");
     }
 }
