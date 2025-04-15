@@ -125,7 +125,35 @@ impl MyHandler {
     }
 
     pub async fn setup(&self) -> Result<Vec<Content>, String> {
-        Err("setupコマンドは未実装なのだ".to_string())
+        // metacontract/templateをカレントディレクトリにgit clone
+        let output_result = Command::new("git")
+            .arg("clone")
+            .arg("https://github.com/metacontract/template.git")
+            .arg("mc-template")
+            .output()
+            .await;
+
+        match output_result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let status_code = output.status.code().map_or("N/A".to_string(), |c| c.to_string());
+                let result_text = format!(
+                    "Setup Results:\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
+                    status_code,
+                    stdout,
+                    stderr
+                );
+                if output.status.success() {
+                    Ok(vec![Content::text(format!("プロジェクトセットアップ成功なのだ！\n{}", result_text))])
+                } else {
+                    Err(format!("プロジェクトセットアップ失敗なのだ…\n{}", result_text))
+                }
+            }
+            Err(e) => {
+                Err(format!("git cloneコマンドの実行に失敗したのだ: {}", e))
+            }
+        }
     }
 
     pub async fn deploy(&self) -> Result<Vec<Content>, String> {
