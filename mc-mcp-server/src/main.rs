@@ -170,7 +170,6 @@ impl MyHandler {
     }
 
     pub async fn deploy(&self) -> Result<Vec<Content>, String> {
-        // forge scriptをカレントディレクトリで実行
         let output_result = Command::new("forge")
             .arg("script")
             .output()
@@ -181,26 +180,38 @@ impl MyHandler {
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                 let status_code = output.status.code().map_or("N/A".to_string(), |c| c.to_string());
-                let result_text = format!(
-                    "Deploy Results:\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
+                let mut result_text = format!(
+                    "Deploy Results:\nExit Code: {}\n\nStdout:\n{}",
                     status_code,
-                    stdout,
-                    stderr
+                    stdout
                 );
+                if !stderr.trim().is_empty() {
+                    result_text.push_str(&format!("\n[stderr]\n{}", stderr));
+                }
                 if output.status.success() {
                     Ok(vec![Content::text(format!("デプロイ成功なのだ！\n{}", result_text))])
                 } else {
-                    Err(format!("デプロイ失敗なのだ…\n{}", result_text))
+                    let mut hint = String::new();
+                    if stderr.contains("not found") || stderr.contains("No such file") {
+                        hint.push_str("\n[ヒント] forgeコマンドがインストールされているか確認してほしいのだ。\n");
+                    }
+                    if stderr.contains("Permission denied") {
+                        hint.push_str("\n[ヒント] パーミッションエラーなのだ。書き込み権限やsudoの必要性を確認してほしいのだ。\n");
+                    }
+                    if stderr.contains("Could not resolve host") || stderr.contains("Failed to connect") {
+                        hint.push_str("\n[ヒント] ネットワーク接続やプロキシ設定を確認してほしいのだ。\n");
+                    }
+                    Err(format!("デプロイ失敗なのだ…\n{}{}", result_text, hint))
                 }
             }
             Err(e) => {
-                Err(format!("forge scriptコマンドの実行に失敗したのだ: {}", e))
+                let msg = format!("forge scriptコマンドの実行に失敗したのだ: {}\n[ヒント] forgeがインストールされているか、パスが通っているか確認してほしいのだ。", e);
+                Err(msg)
             }
         }
     }
 
     pub async fn upgrade(&self) -> Result<Vec<Content>, String> {
-        // forge upgradeをカレントディレクトリで実行
         let output_result = Command::new("forge")
             .arg("upgrade")
             .output()
@@ -211,20 +222,33 @@ impl MyHandler {
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                 let status_code = output.status.code().map_or("N/A".to_string(), |c| c.to_string());
-                let result_text = format!(
-                    "Upgrade Results:\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
+                let mut result_text = format!(
+                    "Upgrade Results:\nExit Code: {}\n\nStdout:\n{}",
                     status_code,
-                    stdout,
-                    stderr
+                    stdout
                 );
+                if !stderr.trim().is_empty() {
+                    result_text.push_str(&format!("\n[stderr]\n{}", stderr));
+                }
                 if output.status.success() {
                     Ok(vec![Content::text(format!("アップグレード成功なのだ！\n{}", result_text))])
                 } else {
-                    Err(format!("アップグレード失敗なのだ…\n{}", result_text))
+                    let mut hint = String::new();
+                    if stderr.contains("not found") || stderr.contains("No such file") {
+                        hint.push_str("\n[ヒント] forgeコマンドがインストールされているか確認してほしいのだ。\n");
+                    }
+                    if stderr.contains("Permission denied") {
+                        hint.push_str("\n[ヒント] パーミッションエラーなのだ。書き込み権限やsudoの必要性を確認してほしいのだ。\n");
+                    }
+                    if stderr.contains("Could not resolve host") || stderr.contains("Failed to connect") {
+                        hint.push_str("\n[ヒント] ネットワーク接続やプロキシ設定を確認してほしいのだ。\n");
+                    }
+                    Err(format!("アップグレード失敗なのだ…\n{}{}", result_text, hint))
                 }
             }
             Err(e) => {
-                Err(format!("forge upgradeコマンドの実行に失敗したのだ: {}", e))
+                let msg = format!("forge upgradeコマンドの実行に失敗したのだ: {}\n[ヒント] forgeがインストールされているか、パスが通っているか確認してほしいのだ。", e);
+                Err(msg)
             }
         }
     }
