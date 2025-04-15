@@ -157,7 +157,33 @@ impl MyHandler {
     }
 
     pub async fn deploy(&self) -> Result<Vec<Content>, String> {
-        Err("deployコマンドは未実装なのだ".to_string())
+        // forge scriptをカレントディレクトリで実行
+        let output_result = Command::new("forge")
+            .arg("script")
+            .output()
+            .await;
+
+        match output_result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let status_code = output.status.code().map_or("N/A".to_string(), |c| c.to_string());
+                let result_text = format!(
+                    "Deploy Results:\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
+                    status_code,
+                    stdout,
+                    stderr
+                );
+                if output.status.success() {
+                    Ok(vec![Content::text(format!("デプロイ成功なのだ！\n{}", result_text))])
+                } else {
+                    Err(format!("デプロイ失敗なのだ…\n{}", result_text))
+                }
+            }
+            Err(e) => {
+                Err(format!("forge scriptコマンドの実行に失敗したのだ: {}", e))
+            }
+        }
     }
 
     pub async fn upgrade(&self) -> Result<Vec<Content>, String> {
