@@ -187,7 +187,33 @@ impl MyHandler {
     }
 
     pub async fn upgrade(&self) -> Result<Vec<Content>, String> {
-        Err("upgradeコマンドは未実装なのだ".to_string())
+        // forge upgradeをカレントディレクトリで実行
+        let output_result = Command::new("forge")
+            .arg("upgrade")
+            .output()
+            .await;
+
+        match output_result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let status_code = output.status.code().map_or("N/A".to_string(), |c| c.to_string());
+                let result_text = format!(
+                    "Upgrade Results:\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
+                    status_code,
+                    stdout,
+                    stderr
+                );
+                if output.status.success() {
+                    Ok(vec![Content::text(format!("アップグレード成功なのだ！\n{}", result_text))])
+                } else {
+                    Err(format!("アップグレード失敗なのだ…\n{}", result_text))
+                }
+            }
+            Err(e) => {
+                Err(format!("forge upgradeコマンドの実行に失敗したのだ: {}", e))
+            }
+        }
     }
 }
 
