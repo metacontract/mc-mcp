@@ -86,8 +86,8 @@
     *   Implement embedding generation pipeline for parsed docs (Completed - Pipeline logic exists).
     *   Implement similarity search logic (Completed - Integrated `VectorDb::search` in Application layer).
     *   Update MCP `Tool` for semantic search (TODO).
-    *   Add integration tests for the full ReferenceService pipeline (embedding generation and search). (**Blocked** - Repeated compilation errors related to `testcontainers`/`qdrant_client` dependencies despite multiple fixes. Requires further investigation/debugging.)
-    *   **Goal:** Semantic search over `mc` docs via natural language query. (In Progress - Pipeline logic implemented, tests blocked)
+    *   **Add integration tests for the full ReferenceService pipeline (embedding generation and search). (Completed - All tests pass with Qdrant startup, TempDir lifecycle, and score_threshold handling fixed)**
+    *   **Goal:** Semantic search over `mc` docs via natural language query. (**Integration tests passing, TDD cycle stabilized**)
 *   **Phase 4: `tool` Expansion & Polish**
     *   Implement remaining `tool` functions (setup, deploy, upgrade).
     *   Improve error handling and user feedback via MCP.
@@ -108,3 +108,9 @@
     *   Update the MCP `Tool` to utilize the semantic search functionality. (TODO)
 6.  Establish CI/CD pipeline. (TODO)
 7.  Monitor MCP specification and `metacontract` evolution for necessary adaptations. (Ongoing)
+
+## 8. Recommended TDD Practices
+
+*   Integration tests involving Qdrant or other external dependencies are now stable by ensuring TempDir lifecycle management, explicit score_threshold usage, and serializing Docker resource usage.
+*   When a test fails, troubleshoot in the order: external service startup → test logic → threshold design.
+*   The project is now well-suited for a robust TDD cycle (Red → Green → Refactor) with maintainable test and implementation structure.
