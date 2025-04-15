@@ -480,11 +480,12 @@ impl VectorDb {
     ///
     /// * `query_vector` - The vector to search with.
     /// * `limit` - The maximum number of results to return.
+    /// * `score_threshold` - Optionally filter out results below this similarity score.
     ///
     /// # Returns
     ///
     /// A Result containing a vector of `ScoredPoint` on success, or an error on failure. Uses anyhow::Error.
-    pub async fn search(&self, query_vector: Vec<f32>, limit: usize) -> Result<Vec<ScoredPoint>> {
+    pub async fn search(&self, query_vector: Vec<f32>, limit: usize, score_threshold: Option<f32>) -> Result<Vec<ScoredPoint>> {
          if query_vector.len() as u64 != self.vector_size {
             return Err(anyhow!(
                 "Query vector dimension ({}) does not match collection dimension ({})",
@@ -507,7 +508,7 @@ impl VectorDb {
                  selector_options: Some(qdrant_client::qdrant::with_vectors_selector::SelectorOptions::Enable(false)),
             }),
             // filter: None, // Add filter if needed
-            // score_threshold: None, // Add score threshold if needed
+            score_threshold, // 追加
             ..Default::default()
         };
 
@@ -634,7 +635,7 @@ mod vector_db_tests {
 
         // Test search (find vector similar to file1)
         let query_vector = vec![0.11, 0.21, 0.31, 0.41];
-        let search_result = vector_db.search(query_vector.clone(), 3).await;
+        let search_result = vector_db.search(query_vector.clone(), 3, None).await;
         assert!(search_result.is_ok(), "Search failed: {:?}", search_result.err());
         let results = search_result.unwrap();
         assert!(!results.is_empty(), "Search returned no results");
@@ -649,7 +650,7 @@ mod vector_db_tests {
 
         // Test search (find vector similar to file2)
         let query_vector_2 = vec![0.55, 0.65, 0.75, 0.85];
-        let search_result_2 = vector_db.search(query_vector_2.clone(), 1).await;
+        let search_result_2 = vector_db.search(query_vector_2.clone(), 1, None).await;
         assert!(search_result_2.is_ok(), "Search 2 failed: {:?}", search_result_2.err());
         let results_2 = search_result_2.unwrap();
         assert_eq!(results_2.len(), 1, "Search 2 should return 1 result");
@@ -687,7 +688,7 @@ mod vector_db_tests {
         vector_db.initialize_collection().await.expect("Collection initialization failed");
 
         let wrong_dim_vector = vec![1.0, 2.0, 3.0];
-        let search_result = vector_db.search(wrong_dim_vector, 1).await;
+        let search_result = vector_db.search(wrong_dim_vector, 1, None).await;
         assert!(search_result.is_err());
         assert!(search_result.unwrap_err().to_string().contains("Query vector dimension"));
     }
@@ -709,7 +710,7 @@ mod vector_db_tests {
          let count_response = client.count_points(TEST_COLLECTION_NAME, None, true).await.expect("Count request failed");
          assert_eq!(count_response.result.expect("Count result missing").count, 0, "Should have 0 points after upserting empty slice");
 
-         let search_result = vector_db.search(vec![0.1, 0.2, 0.3, 0.4], 1).await;
+         let search_result = vector_db.search(vec![0.1, 0.2, 0.3, 0.4], 1, None).await;
          assert!(search_result.is_ok(), "Search after empty upsert failed");
          assert!(search_result.unwrap().is_empty(), "Search should return empty results after empty upsert");
      }

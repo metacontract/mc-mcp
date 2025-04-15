@@ -7,9 +7,9 @@ use mc_mcp_infrastructure::{
 };
 use std::sync::Arc;
 use std::path::PathBuf;
-use testcontainers::{ContainerAsync, GenericImage, RunnableImage, runners::AsyncRunner};
+use testcontainers::{ContainerAsync, GenericImage, runners::AsyncRunner, ImageExt};
 use testcontainers::core::{ContainerPort, WaitFor};
-use qdrant_client::QdrantClient;
+use qdrant_client::Qdrant;
 use tempfile::tempdir;
 use std::fs::{self, File};
 use std::io::Write;
@@ -28,13 +28,15 @@ async fn setup_test_environment() -> Result<(
     ReferenceServiceImpl,
     ContainerAsync<GenericImage>,
     PathBuf,                // Path to temporary test docs directory
+    tempfile::TempDir,      // TempDirを返す
 )> {
     let qdrant_image = GenericImage::new(QDRANT_IMAGE, QDRANT_TAG)
         .with_exposed_port(ContainerPort::Tcp(QDRANT_GRPC_PORT))
-        .with_wait_for(WaitFor::message_on_stderr("Qdrant startup finished"));
+        .with_exposed_port(ContainerPort::Tcp(6333))
+        .with_wait_for(WaitFor::message_on_stdout("Actix runtime found"))
+        .with_startup_timeout(std::time::Duration::from_secs(120));
 
-    let runnable_image = RunnableImage::from(qdrant_image);
-    let qdrant_container = runnable_image.start().await?;
+    let qdrant_container = qdrant_image.start().await?;
 
     let qdrant_grpc_port = qdrant_container.get_host_port_ipv4(QDRANT_GRPC_PORT).await?;
     let qdrant_url = format!("http://localhost:{}", qdrant_grpc_port);
@@ -43,7 +45,10 @@ async fn setup_test_environment() -> Result<(
 
     // Initialize infrastructure components
     let embedder = Arc::new(EmbeddingGenerator::new(TEST_EMBEDDING_MODEL)?);
-    let qdrant_client = QdrantClient::from_url(&qdrant_url).build()?;
+    let qdrant_client = Qdrant::from_url(&qdrant_url).build()?;
+
+    // QdrantのgRPC疎通をリトライで確認
+    wait_for_qdrant_ready(&qdrant_url, std::time::Duration::from_secs(30)).await?;
 
     // VectorDb requires client, collection name, and vector size
     let vector_db = Arc::new(VectorDb::new(
@@ -65,7 +70,7 @@ async fn setup_test_environment() -> Result<(
     // You might want to create some dummy markdown files here
     // e.g., create_dummy_docs(&docs_path)?;
 
-    Ok((service, qdrant_container, docs_path))
+    Ok((service, qdrant_container, docs_path, temp_dir))
 }
 
 // Helper to create dummy markdown files
@@ -91,7 +96,7 @@ fn create_dummy_docs(docs_path: &PathBuf) -> Result<()> {
 #[tokio::test]
 #[ignore] // Ignore by default as it requires Docker and downloads models
 async fn test_integration_index_and_search_happy_path() -> Result<()> {
-    let (service, _container, docs_path) = setup_test_environment().await?;
+    let (service, _container, docs_path, _temp_dir) = setup_test_environment().await?;
     create_dummy_docs(&docs_path)?;
 
     // 1. Index documents
@@ -108,7 +113,7 @@ async fn test_integration_index_and_search_happy_path() -> Result<()> {
         text: "first test document".to_string(),
         limit: Some(5),
     };
-    let search_result = service.search_documents(query).await;
+    let search_result = service.search_documents(query, None).await;
     println!("Search result: {:?}", search_result);
     assert!(search_result.is_ok(), "Search failed");
 
@@ -125,7 +130,7 @@ async fn test_integration_index_and_search_happy_path() -> Result<()> {
 #[tokio::test]
 #[ignore]
 async fn test_integration_index_no_documents() -> Result<()> {
-    let (service, _container, docs_path) = setup_test_environment().await?;
+    let (service, _container, docs_path, _temp_dir) = setup_test_environment().await?;
     // No documents created in docs_path
 
     let index_result = service.index_documents(Some(docs_path.clone())).await;
@@ -133,7 +138,7 @@ async fn test_integration_index_no_documents() -> Result<()> {
 
     // Search should return empty results
     let query = SearchQuery { text: "anything".to_string(), limit: Some(5) };
-    let search_result = service.search_documents(query).await?;
+    let search_result = service.search_documents(query, None).await?;
     assert!(search_result.is_empty());
 
     Ok(())
@@ -142,7 +147,7 @@ async fn test_integration_index_no_documents() -> Result<()> {
 #[tokio::test]
 #[ignore]
 async fn test_integration_search_no_results() -> Result<()> {
-    let (service, _container, docs_path) = setup_test_environment().await?;
+    let (service, _container, docs_path, _temp_dir) = setup_test_environment().await?;
     create_dummy_docs(&docs_path)?;
 
     // Index documents first
@@ -151,7 +156,7 @@ async fn test_integration_search_no_results() -> Result<()> {
 
     // Search for text unlikely to be found
     let query = SearchQuery { text: "xyzzy irrelevant query".to_string(), limit: Some(5) };
-    let search_result = service.search_documents(query).await?;
+    let search_result = service.search_documents(query, Some(0.1)).await?;
     assert!(search_result.is_empty()); // Expect no results
 
     Ok(())
@@ -167,11 +172,29 @@ async fn test_integration_search_no_results() -> Result<()> {
 #[tokio::test]
 #[ignore]
 async fn test_integration_index_invalid_path() -> Result<()> {
-     let (service, _container, _docs_path) = setup_test_environment().await?;
+     let (service, _container, _docs_path, _temp_dir) = setup_test_environment().await?;
      let invalid_path = PathBuf::from("/path/that/does/not/exist");
 
      let index_result = service.index_documents(Some(invalid_path)).await;
      assert!(index_result.is_err()); // Expect an error because path doesn't exist
 
      Ok(())
+}
+
+// QdrantのgRPC疎通をリトライで確認する関数
+async fn wait_for_qdrant_ready(url: &str, timeout: std::time::Duration) -> Result<()> {
+    use std::time::Instant;
+    let start = Instant::now();
+    loop {
+        let client = Qdrant::from_url(url).build();
+        if let Ok(client) = client {
+            if client.health_check().await.is_ok() {
+                break Ok(());
+            }
+        }
+        if start.elapsed() > timeout {
+            break Err(anyhow::anyhow!("Qdrant did not become ready in time"));
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
 }

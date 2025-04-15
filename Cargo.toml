@@ -23,6 +23,6 @@ edition = "2021"
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
-testcontainers = "0.23"
+testcontainers = "0.23.3"
 qdrant_client = { version = "1.13.0", package = "qdrant-client" }
 uuid = { version = "1.10", features = ["v4"] } # Assuming this is the correct version needed workspace-wide

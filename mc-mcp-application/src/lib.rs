@@ -22,7 +22,7 @@ use qdrant_client::Qdrant;
 #[async_trait::async_trait]
 pub trait ReferenceService: Send + Sync {
     async fn index_documents(&self, docs_path: Option<PathBuf>) -> Result<()>;
-    async fn search_documents(&self, query: SearchQuery) -> Result<Vec<SearchResult>>;
+    async fn search_documents(&self, query: SearchQuery, score_threshold: Option<f32>) -> Result<Vec<SearchResult>>;
 }
 
 // Implementation using infrastructure components
@@ -116,7 +116,7 @@ impl ReferenceService for ReferenceServiceImpl {
         Ok(())
     }
 
-    async fn search_documents(&self, query: SearchQuery) -> Result<Vec<SearchResult>> {
+    async fn search_documents(&self, query: SearchQuery, score_threshold: Option<f32>) -> Result<Vec<SearchResult>> {
         log::info!("Performing search for query: '{}', limit: {}", query.text, query.limit.unwrap_or(5));
 
         // 1. Generate embedding for the query
@@ -127,7 +127,7 @@ impl ReferenceService for ReferenceServiceImpl {
 
         // 2. Search using VectorDb
         let search_limit = query.limit.unwrap_or(5); // Default limit
-        let search_results = self.vector_db.search(query_embedding, search_limit).await?;
+        let search_results = self.vector_db.search(query_embedding, search_limit, score_threshold).await?;
 
         // 3. Convert ScoredPoint results to domain::SearchResult
         let domain_results: Vec<SearchResult> = search_results.into_iter()
