@@ -125,7 +125,6 @@ impl MyHandler {
     }
 
     pub async fn setup(&self) -> Result<Vec<Content>, String> {
-        // metacontract/templateをカレントディレクトリにgit clone
         let output_result = Command::new("git")
             .arg("clone")
             .arg("https://github.com/metacontract/template.git")
@@ -138,20 +137,34 @@ impl MyHandler {
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                 let status_code = output.status.code().map_or("N/A".to_string(), |c| c.to_string());
-                let result_text = format!(
-                    "Setup Results:\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
+                let mut result_text = format!(
+                    "Setup Results:\nExit Code: {}\n\nStdout:\n{}",
                     status_code,
-                    stdout,
-                    stderr
+                    stdout
                 );
+                if !stderr.trim().is_empty() {
+                    result_text.push_str(&format!("\n[stderr]\n{}", stderr));
+                }
                 if output.status.success() {
                     Ok(vec![Content::text(format!("プロジェクトセットアップ成功なのだ！\n{}", result_text))])
                 } else {
-                    Err(format!("プロジェクトセットアップ失敗なのだ…\n{}", result_text))
+                    // よくあるエラーのヒント
+                    let mut hint = String::new();
+                    if stderr.contains("not found") || stderr.contains("No such file") {
+                        hint.push_str("\n[ヒント] gitコマンドがインストールされているか確認してほしいのだ。\n");
+                    }
+                    if stderr.contains("Permission denied") {
+                        hint.push_str("\n[ヒント] パーミッションエラーなのだ。書き込み権限やsudoの必要性を確認してほしいのだ。\n");
+                    }
+                    if stderr.contains("Could not resolve host") || stderr.contains("Failed to connect") {
+                        hint.push_str("\n[ヒント] ネットワーク接続やプロキシ設定を確認してほしいのだ。\n");
+                    }
+                    Err(format!("プロジェクトセットアップ失敗なのだ…\n{}{}", result_text, hint))
                 }
             }
             Err(e) => {
-                Err(format!("git cloneコマンドの実行に失敗したのだ: {}", e))
+                let msg = format!("git cloneコマンドの実行に失敗したのだ: {}\n[ヒント] gitがインストールされているか、パスが通っているか確認してほしいのだ。", e);
+                Err(msg)
             }
         }
     }
