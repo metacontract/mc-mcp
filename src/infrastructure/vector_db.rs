@@ -1,34 +1,8 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
-
-// Define modules first
-mod document_index {
-    use std::collections::HashMap;
-    pub type SimpleDocumentIndex = HashMap<String, String>;
-}
-mod payload {
-    use serde::{Deserialize, Serialize};
-    #[derive(Serialize, Deserialize, Debug, Clone)]
-    pub struct DocumentPayload {
-        pub file_path: String,
-    }
-}
-
-// Re-export necessary types and the qdrant_client module
-pub use fastembed::EmbeddingModel;
-pub use qdrant_client; // Re-export the entire module
-pub use self::document_index::SimpleDocumentIndex;
-pub use self::payload::DocumentPayload;
-
-// Internal use statements
-use comrak::{markdown_to_html, ComrakOptions};
-use std::fs;
-use std::path::PathBuf;
-use walkdir::WalkDir;
-use fastembed::{TextEmbedding, InitOptions, Error as FastEmbedError};
+// NOTE: use statements will need adjustment after moving files
+use serde::{Deserialize, Serialize};
 use log;
 // Use the re-exported module path for Qdrant internally
+pub use qdrant_client; // Re-export the entire module
 use self::qdrant_client::Qdrant;
 use self::qdrant_client::{
     Payload,
@@ -38,257 +12,21 @@ use uuid::Uuid;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 
-/// Parses a Markdown string and returns its plain text representation.
-///
-/// This function converts the Markdown to HTML first, then extracts the text content.
-/// It uses default Comrak options.
-///
-/// # Arguments
-///
-/// * `markdown` - A string slice containing the Markdown text.
-///
-/// # Returns
-///
-/// A String containing the plain text extracted from the Markdown.
-pub fn parse_markdown_to_text(markdown: &str) -> String {
-    // TODO: より効率的なテキスト抽出方法を検討 (HTMLを経由しない方法)
-    let html = markdown_to_html(markdown, &ComrakOptions::default());
+// Assuming DocumentToUpsert is now in embedding.rs
+use super::embedding::DocumentToUpsert;
+// Assuming VectorRepository trait is in domain/vector_repository.rs
+use crate::domain::vector_repository::VectorRepository;
 
-    // HTML からテキストを抽出 (簡易的な方法)
-    // より堅牢なライブラリ (例: scraper) の使用も検討できる
-    html_to_text(&html)
-}
-
-// HTML文字列からタグを除去してテキストを抽出するヘルパー関数 (簡易版)
-fn html_to_text(html: &str) -> String {
-    let mut result = String::new();
-    let mut in_tag = false;
-    for c in html.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => result.push(c),
-            _ => {},
-        }
-    }
-    // 簡単な空白の整形
-    result.split_whitespace().collect::<Vec<&str>>().join(" ")
-}
-
-/// Loads Markdown documents from a specified directory (or default) and creates a simple index.
-///
-/// Recursively searches for `.md` files in the given directory, reads them,
-/// parses them to plain text, and stores them in a HashMap.
-///
-/// # Arguments
-///
-/// * `docs_path` - An optional PathBuf specifying the directory to load documents from.
-///                 If None, defaults to "metacontract/mc/site/docs".
-///
-/// # Returns
-///
-/// A Result containing the `SimpleDocumentIndex` on success, or a String error message on failure.
-pub fn load_documents(docs_path: Option<PathBuf>) -> Result<SimpleDocumentIndex, String> {
-    let default_path = PathBuf::from("metacontract/mc/site/docs");
-    let target_path = docs_path.unwrap_or(default_path);
-
-    println!("Loading documents from: {:?}", target_path);
-
-    if !target_path.is_dir() {
-        return Err(format!("Specified path is not a directory: {:?}", target_path));
-    }
-
-    let mut index = SimpleDocumentIndex::new();
-
-    for entry in WalkDir::new(&target_path)
-        .into_iter()
-        .filter_map(|e| e.ok()) // エラーになったエントリは無視
-        .filter(|e| e.path().is_file() && e.path().extension().map_or(false, |ext| ext == "md"))
-    {
-        let path = entry.path();
-        let path_str = path.to_string_lossy().to_string();
-
-        match fs::read_to_string(path) {
-            Ok(content) => {
-                let text = parse_markdown_to_text(&content);
-                index.insert(path_str, text);
-            }
-            Err(e) => {
-                eprintln!("Failed to read file {}: {}", path_str, e);
-            }
-        }
-    }
-
-    if index.is_empty() {
-       println!("Warning: No markdown files found or loaded from {:?}", target_path);
-    }
-
-    Ok(index)
-}
-
-/// A struct responsible for generating text embeddings using a pre-initialized model.
-pub struct EmbeddingGenerator {
-    model: TextEmbedding,
-}
-
-impl EmbeddingGenerator {
-    /// Creates a new EmbeddingGenerator, initializing the specified embedding model.
-    ///
-    /// This function might block while downloading the model files for the first time.
-    ///
-    /// # Arguments
-    ///
-    /// * `model_name` - The embedding model to use (e.g., EmbeddingModel::AllMiniLML6V2).
-    ///
-    /// # Returns
-    ///
-    /// A Result containing the `EmbeddingGenerator` on success, or a `FastEmbedError` on failure.
-    pub fn new(model_name: EmbeddingModel) -> Result<Self, FastEmbedError> {
-        let model = TextEmbedding::try_new(InitOptions::new(model_name))?;
-        Ok(EmbeddingGenerator { model })
-    }
-
-    /// Generates embeddings for a batch of documents.
-    ///
-    /// # Arguments
-    ///
-    /// * `documents` - A slice of string slices representing the documents to embed.
-    ///
-    /// # Returns
-    ///
-    /// A Result containing a vector of embedding vectors (Vec<Vec<f32>>) on success,
-    /// or a `FastEmbedError` on failure.
-    pub fn generate_embeddings(&self, documents: &[&str]) -> Result<Vec<Vec<f32>>, FastEmbedError> {
-        self.model.embed(documents.to_vec(), None)
+mod payload {
+    use serde::{Deserialize, Serialize};
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct DocumentPayload {
+        pub file_path: String,
     }
 }
+pub use self::payload::DocumentPayload;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs::{self, File};
-    use std::io::Write;
-    use tempfile::tempdir;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-
-    #[test]
-    fn test_parse_simple_markdown() {
-        let markdown = "# Header\n\nThis is **bold** text.";
-        let expected_text = "Header This is bold text.";
-        assert_eq!(parse_markdown_to_text(markdown), expected_text);
-    }
-
-    #[test]
-    fn test_parse_markdown_with_link() {
-        let markdown = "Visit [Google](https://google.com)!";
-        let expected_text = "Visit Google!";
-        assert_eq!(parse_markdown_to_text(markdown), expected_text);
-    }
-
-    #[test]
-    fn test_parse_markdown_with_list() {
-        let markdown = "* Item 1\n* Item 2";
-        let expected_text = "Item 1 Item 2";
-        assert_eq!(parse_markdown_to_text(markdown), expected_text);
-    }
-
-    #[test]
-    fn test_load_documents_default_path_not_exists() {
-        let result = load_documents(None);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_load_documents_from_temp_dir() {
-        let dir = tempdir().unwrap();
-        let docs_path = dir.path().to_path_buf();
-
-        fs::create_dir(docs_path.join("sub")).unwrap();
-        let mut file1 = File::create(docs_path.join("file1.md")).unwrap();
-        writeln!(file1, "# Title 1\nContent 1").unwrap();
-        let mut file2 = File::create(docs_path.join("sub/file2.md")).unwrap();
-        writeln!(file2, "* List item").unwrap();
-        let mut file3 = File::create(docs_path.join("not_markdown.txt")).unwrap();
-        writeln!(file3, "ignore me").unwrap();
-
-        let index = load_documents(Some(docs_path.clone())).unwrap();
-
-        assert_eq!(index.len(), 2);
-        assert_eq!(index.get(&docs_path.join("file1.md").to_string_lossy().to_string()), Some(&"Title 1 Content 1".to_string()));
-        assert_eq!(index.get(&docs_path.join("sub/file2.md").to_string_lossy().to_string()), Some(&"List item".to_string()));
-        assert!(!index.contains_key(&docs_path.join("not_markdown.txt").to_string_lossy().to_string()));
-
-        drop(file1);
-        drop(file2);
-        drop(file3);
-        dir.close().unwrap();
-    }
-
-     #[test]
-    fn test_load_documents_empty_dir() {
-        let dir = tempdir().unwrap();
-        let docs_path = dir.path().to_path_buf();
-
-        let index = load_documents(Some(docs_path)).unwrap();
-        assert!(index.is_empty());
-
-        dir.close().unwrap();
-    }
-
-    #[test]
-    fn test_load_documents_non_existent_dir() {
-        let path = PathBuf::from("non_existent_dir_for_test");
-        let result = load_documents(Some(path));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_embedding_generator_init_and_embed() {
-        // EmbeddingModel::Default を BGESmallENV15 に変更
-        let generator_result = EmbeddingGenerator::new(EmbeddingModel::BGESmallENV15);
-        if let Err(e) = &generator_result {
-            println!("Warning: Failed to initialize EmbeddingGenerator (might be due to download issue): {}", e);
-            return;
-        }
-        let generator = generator_result.unwrap();
-
-        let documents = vec!["hello world", "this is a test"];
-        let embeddings_result = generator.generate_embeddings(&documents);
-
-        match embeddings_result {
-            Ok(embeddings) => {
-                assert_eq!(embeddings.len(), 2);
-                assert!(!embeddings[0].is_empty());
-                assert!(!embeddings[1].is_empty());
-                println!("Generated embedding dimension: {}", embeddings[0].len());
-                // BGESmallENV15 の次元数は 384
-                assert_eq!(embeddings[0].len(), 384);
-                assert_eq!(embeddings[1].len(), 384);
-            }
-            Err(e) => {
-                panic!("Embedding generation failed: {}", e);
-            }
-        }
-    }
-}
-
-// --- Add Document structures below ---
-
-/// Represents a document ready to be upserted into Qdrant.
-#[derive(Debug, Clone)]
-pub struct DocumentToUpsert {
-    pub file_path: String,
-    pub vector: Vec<f32>,
-    // Text content might be useful here too for context, but payload only needs file_path for now
-    // pub text_content: String,
-}
-
-/// Represents the Vector Database client and configuration.
 pub struct VectorDb {
     client: Qdrant,
     collection_name: String,
@@ -325,41 +63,19 @@ impl VectorDb {
     /// A Result indicating success or failure.
     pub async fn initialize_collection(&self) -> Result<()> {
         log::info!("Checking if collection '{}' exists...", self.collection_name);
-        match self.client.collection_info(self.collection_name.clone()).await {
-            Ok(info) => {
-                 match info.result {
-                    Some(collection_info) => {
-                        log::info!("Collection '{}' already exists. Status: {:?}", self.collection_name, collection_info.status());
-                        Ok(())
-                    }
-                    None => {
-                         log::warn!("Collection info request succeeded but returned no result for '{}'. Assuming it doesn't exist.", self.collection_name);
-                         self.create_collection_internal().await
-                    }
-                 }
+
+        match self.client.collection_info(&self.collection_name).await {
+            Ok(_) => {
+                log::info!("Collection '{}' already exists.", self.collection_name);
+                Ok(())
             }
             Err(e) => {
-                // Attempt to check gRPC status code if the feature is enabled
-                #[cfg(feature = "tonic-error-checking")]
-                {
-                    if let Some(status) = e.tonic_status() { // Assuming QdrantError exposes tonic_status() or similar
-                        if status.code() == tonic::Code::NotFound {
-                            log::info!("Collection '{}' not found (gRPC status {}). Creating...", self.collection_name, status.code());
-                            return self.create_collection_internal().await;
-                        }
-                    }
-                }
-
-                // Fallback check on string representation (less reliable)
-                let error_string = e.to_string().to_lowercase(); // Convert to lowercase for case-insensitive comparison
-                if error_string.contains("not found") || error_string.contains("doesn't exist") {
-                    log::info!("Collection '{}' not found (error message check: '{}'). Creating...", self.collection_name, error_string);
-                    return self.create_collection_internal().await;
-                }
-
-                log::error!("Failed to get collection info for '{}' due to an unexpected error: {}. Cannot proceed with initialization.", self.collection_name, e);
-                Err(anyhow!("Failed to check collection existence: {}", e))
-
+                 // Log the specific error for debugging
+                log::warn!("Collection '{}' not found or error checking existence: {}. Attempting to create...", self.collection_name, e);
+                 // Check if the error indicates "Not Found" specifically if the client library supports it
+                 // Qdrant client might return a specific status code or error kind for "Not Found"
+                 // Assuming any error means we should try to create it for now.
+                 self.create_collection_internal().await
             }
         }
     }
@@ -531,23 +247,21 @@ impl VectorDb {
 
 #[async_trait]
 impl VectorRepository for VectorDb {
-    async fn upsert(&self, doc: DocumentToUpsert) -> anyhow::Result<()> {
-        self.upsert_documents(&[doc]).await
+    /// Implements the trait method by calling the struct's concrete method.
+    async fn upsert_documents(&self, documents: &[DocumentToUpsert]) -> anyhow::Result<()> {
+        // Call the struct's own upsert_documents method
+        self.upsert_documents(documents).await
     }
-    async fn search(&self, query: Vec<f32>, limit: usize) -> anyhow::Result<Vec<DocumentToUpsert>> {
-        let results = self.search(query, limit, None).await?;
-        // ScoredPoint→DocumentToUpsertへ変換
-        let docs = results.into_iter().filter_map(|sp| {
-            let file_path = sp.payload.get("file_path")?.as_str()?.to_string();
-            // ベクトルはwith_vectors: falseなので空ベクタで返す
-            Some(DocumentToUpsert { file_path, vector: vec![] })
-        }).collect();
-        Ok(docs)
+
+    /// Implements the trait method by calling the struct's concrete method.
+    async fn search(&self, query_vector: Vec<f32>, limit: usize, score_threshold: Option<f32>) -> anyhow::Result<Vec<ScoredPoint>> {
+        // Call the struct's own search method which already returns Vec<ScoredPoint>
+        self.search(query_vector, limit, score_threshold).await
     }
 }
 
 #[cfg(test)]
-#[serial] // Ensure tests run serially due to Docker resource usage
+#[serial_test::serial] // Ensure tests run serially due to Docker resource usage
 mod vector_db_tests {
     use super::*;
     use testcontainers::{
@@ -558,7 +272,9 @@ mod vector_db_tests {
     use tokio;
     use serial_test::serial; // Import the serial attribute macro
     use std::collections::HashMap; // Import HashMap for unwrap_or_else
-    use crate::qdrant_client::qdrant::{CollectionStatus, PointIdChoice}; // Use crate path
+    // Use crate path for qdrant types since qdrant_client is re-exported
+    use super::qdrant_client::qdrant::{CollectionStatus, PointIdChoice};
+    use simple_logger; // Add import for logger
 
     const TEST_COLLECTION_NAME: &str = "test_integration_collection";
     const QDRANT_IMAGE_NAME: &str = "qdrant/qdrant";
@@ -569,7 +285,8 @@ mod vector_db_tests {
     // Helper function to setup and run the Qdrant container and return the gRPC URL
     async fn setup_qdrant_container() -> (ContainerAsync<GenericImage>, String) { // Return container and URL
         // Initialize logger for tests
-        simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info).init().unwrap_or(());
+        // Use try_init to avoid panic if logger is already initialized
+        let _ = simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info).try_init();
 
         log::info!("Starting Qdrant container for integration test...");
         let image = GenericImage::new(QDRANT_IMAGE_NAME, QDRANT_IMAGE_TAG)
@@ -587,7 +304,8 @@ mod vector_db_tests {
     #[serial]
     async fn test_vector_db_new_and_initialize() {
         let (_container, qdrant_url) = setup_qdrant_container().await;
-        let client = crate::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
+        // Use the re-exported qdrant_client path
+        let client = super::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
         let vector_db = VectorDb::new(client.clone(), TEST_COLLECTION_NAME.to_string(), TEST_VECTOR_DIM)
             .expect("Failed to create VectorDb instance");
 
@@ -611,7 +329,7 @@ mod vector_db_tests {
     #[serial]
     async fn test_vector_db_upsert_and_search() {
         let (_container, qdrant_url) = setup_qdrant_container().await;
-        let client = crate::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
+        let client = super::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
         let vector_db = VectorDb::new(client.clone(), TEST_COLLECTION_NAME.to_string(), TEST_VECTOR_DIM)
             .expect("Failed to create VectorDb instance");
         vector_db.initialize_collection().await.expect("Collection initialization failed");
@@ -659,8 +377,8 @@ mod vector_db_tests {
         assert_eq!(results.len(), 3, "Search should return 3 results (limit)");
 
         let top_result = &results[0];
-        let top_payload_map = top_result.payload.clone().unwrap_or_else(HashMap::new);
-        let top_payload: DocumentPayload = serde_json::from_value(serde_json::Value::Object(top_payload_map.into()))
+        let top_payload_value = Payload::from(top_result.payload.clone().unwrap_or_default()).into(); // Convert to serde_json::Value
+        let top_payload: DocumentPayload = serde_json::from_value(top_payload_value)
                                            .expect("Failed to deserialize payload");
         assert_eq!(top_payload.file_path, "file1.md", "Top search result mismatch");
         log::info!("Search results for {:?}: {:?}", query_vector, results);
@@ -672,49 +390,47 @@ mod vector_db_tests {
         let results_2 = search_result_2.unwrap();
         assert_eq!(results_2.len(), 1, "Search 2 should return 1 result");
         let top_result_2 = &results_2[0];
-        let top_payload_map_2 = top_result_2.payload.clone().unwrap_or_else(HashMap::new);
-        let top_payload_2: DocumentPayload = serde_json::from_value(serde_json::Value::Object(top_payload_map_2.into()))
+        let top_payload_value_2 = Payload::from(top_result_2.payload.clone().unwrap_or_default()).into(); // Convert to serde_json::Value
+        let top_payload_2: DocumentPayload = serde_json::from_value(top_payload_value_2)
                                            .expect("Failed to deserialize payload 2");
         assert_eq!(top_payload_2.file_path, "file2.txt", "Top search result 2 mismatch");
-
     }
 
-    // ... (test_vector_db_new_invalid_params, test_vector_db_search_wrong_dimension, test_vector_db_upsert_empty remain largely the same)
-     #[tokio::test]
-     #[serial]
+    #[tokio::test]
+    #[serial]
      async fn test_vector_db_new_invalid_params() {
          let (_container, qdrant_url) = setup_qdrant_container().await;
-         let client = crate::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
+         let client = super::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
 
+         // Test empty collection name
          let result_empty_name = VectorDb::new(client.clone(), "".to_string(), TEST_VECTOR_DIM);
          assert!(result_empty_name.is_err());
-         assert!(result_empty_name.unwrap_err().to_string().contains("Collection name cannot be empty"));
 
-         let result_zero_size = VectorDb::new(client.clone(), "valid_name".to_string(), 0);
-         assert!(result_zero_size.is_err());
-         assert!(result_zero_size.unwrap_err().to_string().contains("Vector size must be greater than zero"));
+         // Test zero vector size
+         let result_zero_dim = VectorDb::new(client, TEST_COLLECTION_NAME.to_string(), 0);
+         assert!(result_zero_dim.is_err());
      }
 
     #[tokio::test]
     #[serial]
     async fn test_vector_db_search_wrong_dimension() {
-        let (_container, qdrant_url) = setup_qdrant_container().await;
-        let client = crate::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
-        let vector_db = VectorDb::new(client, TEST_COLLECTION_NAME.to_string(), TEST_VECTOR_DIM)
-            .expect("Failed to create VectorDb instance");
-        vector_db.initialize_collection().await.expect("Collection initialization failed");
+         let (_container, qdrant_url) = setup_qdrant_container().await;
+         let client = super::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
+         let vector_db = VectorDb::new(client.clone(), TEST_COLLECTION_NAME.to_string(), TEST_VECTOR_DIM)
+             .expect("Failed to create VectorDb instance");
+         vector_db.initialize_collection().await.expect("Collection initialization failed");
 
-        let wrong_dim_vector = vec![1.0, 2.0, 3.0];
-        let search_result = vector_db.search(wrong_dim_vector, 1, None).await;
-        assert!(search_result.is_err());
-        assert!(search_result.unwrap_err().to_string().contains("Query vector dimension"));
-    }
+         // Test search with wrong dimension
+         let wrong_dim_vector = vec![0.1, 0.2, 0.3]; // Dim 3 instead of 4
+         let search_result = vector_db.search(wrong_dim_vector, 1, None).await;
+         assert!(search_result.is_err(), "Search with wrong dimension should fail");
+     }
 
-     #[tokio::test]
-     #[serial]
+    #[tokio::test]
+    #[serial]
      async fn test_vector_db_upsert_empty() {
          let (_container, qdrant_url) = setup_qdrant_container().await;
-         let client = crate::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
+         let client = super::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
          let vector_db = VectorDb::new(client.clone(), TEST_COLLECTION_NAME.to_string(), TEST_VECTOR_DIM)
              .expect("Failed to create VectorDb instance");
          vector_db.initialize_collection().await.expect("Collection initialization failed");

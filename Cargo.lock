@@ -1773,66 +1773,25 @@ dependencies = [
 [[package]]
 name = "mc-mcp"
 version = "0.1.0"
-
-[[package]]
-name = "mc-mcp-application"
-version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "log",
- "mc-mcp-domain",
- "mc-mcp-infrastructure",
- "qdrant-client",
- "serde_json",
- "tempfile",
- "testcontainers",
- "testcontainers-modules",
- "tokio",
- "tonic",
- "uuid",
-]
-
-[[package]]
-name = "mc-mcp-domain"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "mc-mcp-infrastructure"
-version = "0.1.0"
-dependencies = [
- "anyhow",
  "comrak",
  "fastembed",
  "log",
  "qdrant-client",
+ "rmcp",
  "serde",
  "serde_json",
  "serial_test",
  "simple_logger",
  "tempfile",
  "testcontainers",
+ "testcontainers-modules",
  "tokio",
  "tonic",
  "uuid",
  "walkdir",
-]
-
-[[package]]
-name = "mc-mcp-server"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "mc-mcp-application",
- "mc-mcp-domain",
- "mc-mcp-infrastructure",
- "rmcp",
- "serde_json",
- "tokio",
 ]
 
 [[package]]
