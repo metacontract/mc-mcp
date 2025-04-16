@@ -4,7 +4,7 @@ pub mod embedding;
 pub mod vector_db;
 
 // Re-export key types for easier access from application layer
-pub use file_system::{load_documents, SimpleDocumentIndex};
+pub use file_system::{load_documents, load_prebuilt_index, SimpleDocumentIndex};
 // pub use markdown::parse_markdown_to_text; // Keep commented out as it's unused
 pub use embedding::{EmbeddingGenerator, DocumentToUpsert}; // Remove EmbeddingModel from here
 pub use vector_db::{VectorDb, DocumentPayload, qdrant_client};

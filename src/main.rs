@@ -25,7 +25,7 @@ mod application;
 mod infrastructure;
 
 // Update use paths to crate::<module>::...
-use crate::infrastructure::{load_documents, SimpleDocumentIndex};
+use crate::infrastructure::{load_documents, load_prebuilt_index, SimpleDocumentIndex};
 use crate::application::reference_service::{ReferenceService, ReferenceServiceImpl};
 use crate::infrastructure::embedding::EmbeddingGenerator;
 use crate::infrastructure::EmbeddingModel;
@@ -41,17 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("mc-mcp server (MCP over stdio) started.");
 
     // Document loading (using moved function)
-    let document_index = match load_documents(None) {
-        Ok(index) => {
-            println!("Successfully loaded {} documents.", index.len());
-            Arc::new(Mutex::new(index))
-        }
-        Err(e) => {
-            eprintln!("Failed to load documents: {}. Starting with empty index.", e);
-            // TODO: Log this error properly
-            Arc::new(Mutex::new(SimpleDocumentIndex::new()))
-        }
-    };
+    let document_index = initialize_document_index(std::path::Path::new("metacontract/mc/site/docs"));
 
     // --- Dependency Injection Setup ---
     // TODO: Read configuration from file/env (e.g., using figment)
@@ -228,6 +218,78 @@ impl ServerHandler for MyHandler {
                 }
             }
         }
+    }
+}
+
+/// Initializes the document index, preferring prebuilt_index.json if present.
+pub fn initialize_document_index(doc_dir: &std::path::Path) -> Arc<Mutex<SimpleDocumentIndex>> {
+    let prebuilt_path = doc_dir.join("prebuilt_index.json");
+    if prebuilt_path.exists() {
+        match load_prebuilt_index(prebuilt_path) {
+            Ok(index) => {
+                println!("Loaded prebuilt_index.json ({} entries)", index.len());
+                return Arc::new(Mutex::new(index));
+            }
+            Err(e) => {
+                eprintln!("Failed to load prebuilt_index.json: {}. Falling back to directory scan.", e);
+            }
+        }
+    }
+    match load_documents(Some(doc_dir.to_path_buf())) {
+        Ok(index) => {
+            println!("Loaded {} documents from directory scan.", index.len());
+            Arc::new(Mutex::new(index))
+        }
+        Err(e) => {
+            eprintln!("Failed to load documents: {}. Starting with empty index.", e);
+            Arc::new(Mutex::new(SimpleDocumentIndex::new()))
+        }
+    }
+}
+
+#[cfg(test)]
+mod doc_index_init_tests {
+    use super::*;
+    use std::fs::{self, File};
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_initialize_document_index_prefers_prebuilt() {
+        let dir = tempdir().unwrap();
+        let prebuilt_path = dir.path().join("prebuilt_index.json");
+        let dummy = serde_json::json!({
+            "file1.md": ["Dummy content 1", "mc-docs"]
+        });
+        let mut file = File::create(&prebuilt_path).unwrap();
+        write!(file, "{}", dummy.to_string()).unwrap();
+        drop(file);
+        // 物理的に.mdファイルも置いてみるが、prebuiltが優先される
+        let md_path = dir.path().join("file2.md");
+        let mut md_file = File::create(&md_path).unwrap();
+        writeln!(md_file, "# Should not be loaded").unwrap();
+        drop(md_file);
+        let index = initialize_document_index(dir.path());
+        let locked = index.lock().unwrap();
+        assert_eq!(locked.len(), 1);
+        assert!(locked.get("file1.md").is_some());
+        assert!(locked.get("file2.md").is_none());
+        dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_initialize_document_index_fallback_to_scan() {
+        let dir = tempdir().unwrap();
+        // prebuilt_index.jsonは置かない
+        let md_path = dir.path().join("file2.md");
+        let mut md_file = File::create(&md_path).unwrap();
+        writeln!(md_file, "# Loaded by scan").unwrap();
+        drop(md_file);
+        let index = initialize_document_index(dir.path());
+        let locked = index.lock().unwrap();
+        assert_eq!(locked.len(), 1);
+        assert!(locked.get(&md_path.to_string_lossy().to_string()).is_some());
+        dir.close().unwrap();
     }
 }
 

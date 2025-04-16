@@ -120,7 +120,8 @@
 6.  Establish CI/CD pipeline (including pre-building `mc` docs index). (TODO)
 7.  Monitor MCP specification and `metacontract` evolution for necessary adaptations. (Ongoing)
 8.  [Completed] Fix test code after single-crate migration (make `cargo test` pass).
-9.  [In progress] Start implementation of prebuilt mc-docs index loading (TDD cycle).
+9.  [Completed] Prebuilt mc-docs index loading (TDD cycle).
+10. [In progress] Next: Additional document source config/indexing, metadata integration (TDD).
 
 ## 8. Recommended TDD Practices
 

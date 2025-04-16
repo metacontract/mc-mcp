@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 use super::markdown::parse_markdown_to_text; // Assuming markdown.rs exists
+use serde_json;
 
 // Define module first
 mod document_index {
@@ -63,6 +64,13 @@ pub fn load_documents(docs_path: Option<PathBuf>) -> Result<SimpleDocumentIndex,
     Ok(index)
 }
 
+/// Loads a prebuilt document index from a JSON file.
+pub fn load_prebuilt_index(path: PathBuf) -> Result<SimpleDocumentIndex, String> {
+    let file = std::fs::File::open(&path).map_err(|e| format!("Failed to open prebuilt index: {}", e))?;
+    let raw_map: std::collections::HashMap<String, (String, String)> = serde_json::from_reader(file)
+        .map_err(|e| format!("Failed to parse prebuilt index JSON: {}", e))?;
+    Ok(raw_map)
+}
 
 #[cfg(test)]
 mod tests {
@@ -134,5 +142,30 @@ mod tests {
         let path = PathBuf::from("non_existent_dir_for_test");
         let result = load_documents(Some(path));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_prebuilt_index_json() {
+        use std::fs::File;
+        use std::io::Write;
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let index_path = dir.path().join("prebuilt_index.json");
+        // ダミーのインデックスデータ
+        let dummy = serde_json::json!({
+            "file1.md": ["Dummy content 1", "mc-docs"],
+            "file2.md": ["Dummy content 2", "mc-docs"]
+        });
+        let mut file = File::create(&index_path).unwrap();
+        write!(file, "{}", dummy.to_string()).unwrap();
+        drop(file);
+        // テスト対象関数（未実装）
+        let result = load_prebuilt_index(index_path.clone());
+        assert!(result.is_ok(), "Should load prebuilt index JSON");
+        let index = result.unwrap();
+        assert_eq!(index.len(), 2);
+        assert_eq!(index.get("file1.md"), Some(&("Dummy content 1".to_string(), "mc-docs".to_string())));
+        assert_eq!(index.get("file2.md"), Some(&("Dummy content 2".to_string(), "mc-docs".to_string())));
+        dir.close().unwrap();
     }
 }
