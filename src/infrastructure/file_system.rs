@@ -72,6 +72,34 @@ pub fn load_prebuilt_index(path: PathBuf) -> Result<SimpleDocumentIndex, String>
     Ok(raw_map)
 }
 
+/// Loads Markdown documents from multiple sources, each with its own source metadata.
+pub fn load_documents_from_multiple_sources(sources: &[(PathBuf, String)]) -> Result<SimpleDocumentIndex, String> {
+    let mut index = SimpleDocumentIndex::new();
+    for (dir, source) in sources {
+        if !dir.is_dir() {
+            return Err(format!("Specified path is not a directory: {:?}", dir));
+        }
+        for entry in WalkDir::new(dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file() && e.path().extension().map_or(false, |ext| ext == "md"))
+        {
+            let path = entry.path();
+            let path_str = path.to_string_lossy().to_string();
+            match fs::read_to_string(path) {
+                Ok(content) => {
+                    let text = parse_markdown_to_text(&content);
+                    index.insert(path_str, (text, source.clone()));
+                }
+                Err(e) => {
+                    eprintln!("Failed to read file {}: {}", path_str, e);
+                }
+            }
+        }
+    }
+    Ok(index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,5 +195,47 @@ mod tests {
         assert_eq!(index.get("file1.md"), Some(&("Dummy content 1".to_string(), "mc-docs".to_string())));
         assert_eq!(index.get("file2.md"), Some(&("Dummy content 2".to_string(), "mc-docs".to_string())));
         dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_load_documents_with_additional_sources() {
+        use std::fs::File;
+        use std::io::Write;
+        use tempfile::tempdir;
+        use std::collections::HashMap;
+        // メインdocsディレクトリ
+        let main_dir = tempdir().unwrap();
+        let main_md = main_dir.path().join("main.md");
+        let mut f1 = File::create(&main_md).unwrap();
+        writeln!(f1, "# Main doc").unwrap();
+        drop(f1);
+        // 追加ソース1
+        let add1 = tempdir().unwrap();
+        let add1_md = add1.path().join("add1.md");
+        let mut f2 = File::create(&add1_md).unwrap();
+        writeln!(f2, "# Add1 doc").unwrap();
+        drop(f2);
+        // 追加ソース2
+        let add2 = tempdir().unwrap();
+        let add2_md = add2.path().join("add2.md");
+        let mut f3 = File::create(&add2_md).unwrap();
+        writeln!(f3, "# Add2 doc").unwrap();
+        drop(f3);
+        // テスト対象: main_dir, [add1, add2] をまとめてインデックス化
+        let sources = vec![
+            (main_dir.path().to_path_buf(), "mc-docs".to_string()),
+            (add1.path().to_path_buf(), "additional-1".to_string()),
+            (add2.path().to_path_buf(), "additional-2".to_string()),
+        ];
+        let index = load_documents_from_multiple_sources(&sources).unwrap();
+        // 期待: 3ファイル全てがインデックスされ、sourceメタデータも正しい
+        let mut expected = HashMap::new();
+        expected.insert(main_md.to_string_lossy().to_string(), ("Main doc".to_string(), "mc-docs".to_string()));
+        expected.insert(add1_md.to_string_lossy().to_string(), ("Add1 doc".to_string(), "additional-1".to_string()));
+        expected.insert(add2_md.to_string_lossy().to_string(), ("Add2 doc".to_string(), "additional-2".to_string()));
+        assert_eq!(index, expected);
+        main_dir.close().unwrap();
+        add1.close().unwrap();
+        add2.close().unwrap();
     }
 }
