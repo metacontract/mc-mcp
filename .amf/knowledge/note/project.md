@@ -30,13 +30,13 @@
 
 ## 3. Architecture Design (Rust)
 
-*   **Structure:** Cargo workspace with layered crates.
-*   **Layers:**
-    *   **`mc-mcp-domain`:** Core business logic, entities (`mc` project, doc sections), value objects, repository traits (`trait ProjectRepository`, `trait DocumentRepository`), service traits (`trait ToolService`, `trait ReferenceService`), domain errors. No external dependencies other than core Rust/std.
-    *   **`mc-mcp-application`:** Use case implementations (`struct ToolServiceImpl`), DTOs, application errors (`thiserror`). Depends only on `mc-mcp-domain`. Injects repository traits.
-    *   **`mc-mcp-infrastructure`:** Concrete repository implementations (`struct FileSystemProjectRepository`, `struct VectorDBDocumentRepository`), Markdown parsing (`comrak`), Vector DB client (`qdrant-client` via `VectorDb` struct with `new`, `initialize_collection`, `upsert_documents`, `search` methods), embedding generation (`fastembed-rs` via `EmbeddingGenerator` struct), Foundry command execution (`tokio::process`), filesystem interaction (`tokio::fs`, `fs_extra`). Implements domain traits. Depends on `mc-mcp-domain` and external crates. Includes integration tests using `testcontainers` for Qdrant.
-    *   **`mc-mcp-server` (Binary Crate):** MCP protocol handling (`modelcontextprotocol-rust-sdk`), transport layer (`stdio` primary), mapping MCP requests to application use cases, Composition Root (manual DI), logging/config setup. Depends on `mc-mcp-application` and MCP SDK.
-*   **Dependency Rule:** Strictly inwards (Presentation -> Application -> Domain <- Infrastructure).
+*   **Structure:** Single crate (`mc-mcp`) with layered modules (`src/domain`, `src/application`, `src/infrastructure`).
+*   **Layers (Modules within `src/`):**
+    *   **`domain`:** Core business logic, entities (`mc` project, doc sections), value objects, repository traits (`trait ProjectRepository`, `trait DocumentRepository`), service traits (`trait ToolService`, `trait ReferenceService`), domain errors. No external dependencies other than core Rust/std and necessary crates like `serde`.
+    *   **`application`:** Use case implementations (`struct ReferenceServiceImpl`), DTOs, application errors (`thiserror`). Depends only on the `domain` module. Injects repository traits defined in `domain`.
+    *   **`infrastructure`:** Concrete repository implementations (`struct VectorDb`), Markdown parsing (`comrak`), Vector DB client (`qdrant-client` via `VectorDb` struct), embedding generation (`fastembed-rs` via `EmbeddingGenerator` struct), Foundry command execution (`tokio::process`), filesystem interaction (`tokio::fs`, `fs_extra`). Implements domain traits. Depends on the `domain` module and external crates.
+    *   **`main.rs` (Binary Entry Point):** MCP protocol handling (`modelcontextprotocol-rust-sdk`), transport layer (`stdio` primary), mapping MCP requests to application use cases, Composition Root (manual DI), logging/config setup. Depends on the `application` and `infrastructure` modules, and the MCP SDK.
+*   **Dependency Rule:** Strictly inwards (Entry Point -> Application -> Domain <- Infrastructure).
 
 ## 4. Core Feature Implementation Strategy
 
