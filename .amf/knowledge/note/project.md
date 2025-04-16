@@ -3,7 +3,7 @@
 ## 1. Project Overview
 
 *   **Name:** mc-mcp
-*   **Purpose:** Develop a Model Context Protocol (MCP) server to support smart contract development using the `metacontract` (mc) framework ([https://github.com/metacontract/mc](https://github.com/metacontract/mc)). The server will provide tools and reference information to enhance the developer experience.
+*   **Purpose:** Develop an MCP server for the metacontract (mc) framework, providing `tool` (Foundry integration) and `reference` (documentation search) features.
 *   **Target Framework:** `metacontract` (mc) - A Foundry-based framework implementing ERC-7546 (Upgradeable Clone for Scalable Contracts) focusing on upgradeability, modularity, scalability, and testability. It is described as optimized for AI integration and DevOps efficiency .
 *   **Protocol:** Model Context Protocol (MCP) - An open protocol standardizing interactions between AI applications (clients/hosts like IDEs) and external tools/data sources (servers like `mc-mcp`) .
 *   **Core Functionality (MCP Tools):**
@@ -16,7 +16,7 @@
     *   **Rationale:** Chosen over TypeScript due to superior performance (crucial for potential `reference` function complexity and Foundry interaction), strong memory safety guarantees, robust concurrency features, explicit error handling (`Result`/`Option`), excellent tooling (Cargo, rustfmt, Clippy), and strong synergy with the Rust-based Foundry ecosystem. While the learning curve is steeper, the benefits in reliability and long-term maintainability outweigh the initial development speed difference for a developer tool.
 *   **Architecture:** Clean Architecture / Layered Architecture (Onion style).
 *   **MCP Integration:** `modelcontextprotocol-rust-sdk`.
-    *   **Design Principle:** Following the official [rmcp repository](https://github.com/modelcontextprotocol/rust-sdk), there is no need to manage or initialize Peer types manually. The server should be started simply by calling `serve()` with the service and transport. The `peer` field in `RequestContext` can be omitted in tests and is not required for normal operation.
+    *   **Design Principle:** Following the official [rmcp repository](https://github.com/modelcontextprotocol/rust-sdk), there is no need to manage or initialize Peer types manually. The server should be started simply by calling `serve()` with the service and transport. The `peer` field in `RequestContext` can be omitted in tests and is not required for normal operation. **All related type errors are now resolved!**
 *   **Vector DB (for `reference`):** **Qdrant** (preferred) or **LanceDB**. Integrated *within* the `mc-mcp` server process.
     *   **Rationale for Internal Integration:** Aligns with MCP's local-first principle, ensures low latency (especially with `stdio`), provides self-contained functionality, simplifies `Tool` logic integration, enhances privacy, and avoids external dependencies on `mc-book` API.
 *   **Text Embedding Generation (for `reference`):** Local Sentence Transformer models (e.g., `all-MiniLM-L6-v2`) using Rust libraries like `fastembed-rs` or alternatives.
@@ -59,6 +59,8 @@
         6.  **Search:** On query, generate query embedding, perform similarity search in the Vector DB. Optionally filter by source metadata.
         7.  Return relevant chunks via MCP `Tool` response, potentially indicating the source.
     *   **MCP Implementation:** Expose search functionality as an MCP `Tool` accepting natural language queries.
+    *   **Status:** Semantic search pipeline implemented and tests stabilized
+    *   **Next:** Implement pre-built index loading, support for additional sources, and metadata integration
 
 ## 5. Supporting Infrastructure
 
