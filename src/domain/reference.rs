@@ -21,5 +21,6 @@ pub struct DocumentFragment {
 pub struct SearchResult {
     pub file_path: String, // Path to the source document
     pub score: f32,        // Similarity score
+    pub source: String,    // 追加: ドキュメントソース
     // pub fragment: Option<DocumentFragment>, // Optional relevant fragment
 }

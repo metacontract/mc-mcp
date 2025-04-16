@@ -43,6 +43,7 @@ impl EmbeddingGenerator {
 pub struct DocumentToUpsert {
     pub file_path: String,
     pub vector: Vec<f32>,
+    pub source: String, // 追加: ドキュメントソース情報
     // Text content might be useful here too for context, but payload only needs file_path for now
     // pub text_content: String,
 }
@@ -57,7 +58,7 @@ mod tests {
     #[test]
     fn test_embedding_generator_init_and_embed() -> Result<(), FastEmbedError> {
         let model_name = EmbeddingModel::AllMiniLML6V2; // Use EmbeddingModel directly
-        let generator = EmbeddingGenerator::new(model_name)?;
+        let generator = EmbeddingGenerator::new(model_name.clone())?;
 
         let documents = vec!["This is a test document.", "Another document."];
         let embeddings = generator.generate_embeddings(&documents)?;

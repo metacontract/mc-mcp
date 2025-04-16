@@ -77,7 +77,7 @@ impl ReferenceService for ReferenceServiceImpl {
         let mut total_chunks = 0;
 
         // 2. Chunk, Embed, and Prepare for Upsert
-        for (file_path, content) in &document_map {
+        for (file_path, (content, source)) in &document_map {
             let chunks = self.chunk_document(file_path, content);
             total_chunks += chunks.len();
             log::debug!("Generated {} chunks for {}", chunks.len(), file_path);
@@ -96,11 +96,11 @@ impl ReferenceService for ReferenceServiceImpl {
             // 4. Prepare DocumentToUpsert structs
             let docs_to_upsert: Vec<DocumentToUpsert> = chunks.into_iter()
                 .zip(embeddings.into_iter())
-                .map(|(_chunk_content, vector)| { // We don't need chunk_content here, just the path and vector
+                .map(|(_chunk_content, vector)| {
                     DocumentToUpsert {
-                        file_path: file_path.clone(), // Associate chunk with original file path
+                        file_path: file_path.clone(),
                         vector,
-                        // text_content: chunk_content, // Could store chunk text in payload if needed
+                        source: source.clone(),
                     }
                 })
                 .collect();
@@ -189,6 +189,7 @@ impl ReferenceService for ReferenceServiceImpl {
                         Ok(payload) => Some(SearchResult {
                             file_path: payload.file_path,
                             score: scored_point.score,
+                            source: payload.source,
                         }),
                         Err(e) => {
                             error!("Failed to deserialize DocumentPayload from converted JSON for point ID {}: {}. JSON was: {}", document_id_str, e, intermediate_json_value);

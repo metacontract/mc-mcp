@@ -1789,6 +1789,7 @@ dependencies = [
  "testcontainers",
  "testcontainers-modules",
  "tokio",
+ "tokio-util",
  "tonic",
  "uuid",
  "walkdir",

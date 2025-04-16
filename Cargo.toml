@@ -23,6 +23,7 @@ tokio = { version = "1", features = ["full"] } # Merged features
 serde_json = "1"
 qdrant_client = { version = "1.13.0", package = "qdrant-client" }
 uuid = { version = "1.10", features = ["v4"] } # Use the version from workspace.dependencies
+tokio-util = "0.7.14"
 
 [dev-dependencies]
 # From application

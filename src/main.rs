@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let embedding_model = EmbeddingModel::AllMiniLML6V2;
 
     let embedder = Arc::new(EmbeddingGenerator::new(embedding_model)?);
-    let vector_db_instance = VectorDb::new(qdrant_client, collection_name, vector_dim)?;
+    let vector_db_instance = VectorDb::new(Box::new(qdrant_client), collection_name, vector_dim)?;
     vector_db_instance.initialize_collection().await?; // Initialize Qdrant collection
     let vector_db: Arc<dyn VectorRepository> = Arc::new(vector_db_instance); // Use trait object for dependency injection
 
@@ -81,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[derive(Clone)]
 struct MyHandler {
-    document_index: Arc<Mutex<SimpleDocumentIndex>>, // Keep this for now, though unused in semantic search
+    document_index: Arc<Mutex<SimpleDocumentIndex>>,
     reference_service: Arc<dyn ReferenceService>, // Use trait object
 }
 
@@ -255,8 +255,8 @@ mod tests {
             println!("MockReferenceService: Searching for '{}', limit {:?}", query.text, query.limit);
             if query.text == "test query" {
                 Ok(vec![
-                    SearchResult { file_path: "mock_path1.md".to_string(), score: 0.9 },
-                    SearchResult { file_path: "mock_path2.md".to_string(), score: 0.8 },
+                    SearchResult { file_path: "mock_path1.md".to_string(), score: 0.9, source: "mock-source".to_string() },
+                    SearchResult { file_path: "mock_path2.md".to_string(), score: 0.8, source: "mock-source".to_string() },
                 ])
             } else {
                 Ok(vec![])
@@ -302,15 +302,18 @@ mod tests {
         let handler = MyHandler { document_index: dummy_index, reference_service: mock_service };
 
         let params = CallToolRequestParam {
-            name: "search_docs".to_string(),
+            name: "search_docs".to_string().into(),
             arguments: Some(serde_json::json!({ "query": "test query" }).as_object().unwrap().clone()),
         };
 
-        let result = handler.call_tool(params, RequestContext::default()).await;
+        let result = handler.call_tool(params, RequestContext::<RoleServer> {
+            ct: tokio_util::sync::CancellationToken::new(),
+            id: rmcp::model::NumberOrString::String("test".to_string().into()),
+        }).await;
 
         assert!(result.is_ok());
         let call_result = result.unwrap();
-        assert_eq!(call_result.status, model::StatusCode::Success);
+        assert_eq!(call_result.is_error, Some(false), "Expected success status");
         assert_eq!(call_result.content.len(), 2);
         assert!(call_result.content[0].raw.as_text().unwrap().text.contains("mock_path1.md"));
         assert!(call_result.content[1].raw.as_text().unwrap().text.contains("mock_path2.md"));
@@ -323,15 +326,18 @@ mod tests {
         let handler = MyHandler { document_index: dummy_index, reference_service: mock_service };
 
         let params = CallToolRequestParam {
-            name: "search_docs".to_string(),
+            name: "search_docs".to_string().into(),
             arguments: Some(serde_json::json!({ "query": "unknown query" }).as_object().unwrap().clone()),
         };
 
-        let result = handler.call_tool(params, RequestContext::default()).await;
+        let result = handler.call_tool(params, RequestContext::<RoleServer> {
+            ct: tokio_util::sync::CancellationToken::new(),
+            id: rmcp::model::NumberOrString::String("test".to_string().into()),
+        }).await;
 
         assert!(result.is_ok());
         let call_result = result.unwrap();
-        assert_eq!(call_result.status, model::StatusCode::Success);
+        assert_eq!(call_result.is_error, Some(false), "Expected success status");
         assert_eq!(call_result.content.len(), 1);
         assert!(call_result.content[0].raw.as_text().unwrap().text.contains("No documents found"));
     }
@@ -343,15 +349,18 @@ mod tests {
         let handler = MyHandler { document_index: dummy_index, reference_service: mock_service };
 
         let params = CallToolRequestParam {
-            name: "search_docs".to_string(),
+            name: "search_docs".to_string().into(),
             arguments: Some(serde_json::json!({}).as_object().unwrap().clone()), // Empty args
         };
 
-        let result = handler.call_tool(params, RequestContext::default()).await;
+        let result = handler.call_tool(params, RequestContext::<RoleServer> {
+            ct: tokio_util::sync::CancellationToken::new(),
+            id: rmcp::model::NumberOrString::String("test".to_string().into()),
+        }).await;
 
         assert!(result.is_ok());
         let call_result = result.unwrap();
-        assert_eq!(call_result.status, model::StatusCode::Error);
+        assert_eq!(call_result.is_error, Some(true), "Expected error status");
         assert!(call_result.content[0].raw.as_text().unwrap().text.contains("Missing 'query' parameter"));
     }
 
@@ -362,15 +371,18 @@ mod tests {
         let handler = MyHandler { document_index: dummy_index, reference_service: mock_service };
 
         let params = CallToolRequestParam {
-            name: "search_docs".to_string(),
+            name: "search_docs".to_string().into(),
             arguments: Some(serde_json::json!({ "query": 123 }).as_object().unwrap().clone()), // Query is not a string
         };
 
-        let result = handler.call_tool(params, RequestContext::default()).await;
+        let result = handler.call_tool(params, RequestContext::<RoleServer> {
+            ct: tokio_util::sync::CancellationToken::new(),
+            id: rmcp::model::NumberOrString::String("test".to_string().into()),
+        }).await;
 
         assert!(result.is_ok());
         let call_result = result.unwrap();
-        assert_eq!(call_result.status, model::StatusCode::Error);
+        assert_eq!(call_result.is_error, Some(true), "Expected error status");
         assert!(call_result.content[0].raw.as_text().unwrap().text.contains("Invalid 'query' parameter"));
     }
 
@@ -381,16 +393,19 @@ mod tests {
         let handler = MyHandler { document_index: dummy_index, reference_service: mock_service };
 
         let params = CallToolRequestParam {
-            name: "unknown_tool".to_string(),
+            name: "unknown_tool".to_string().into(),
             arguments: None,
         };
 
-        let result = handler.call_tool(params, RequestContext::default()).await;
+        let result = handler.call_tool(params, RequestContext::<RoleServer> {
+            ct: tokio_util::sync::CancellationToken::new(),
+            id: rmcp::model::NumberOrString::String("test".to_string().into()),
+        }).await;
 
         assert!(result.is_err());
-        match result.err().unwrap() {
-            McpError::MethodNotFound => { /* Expected error */ }
-            _ => panic!("Expected MethodNotFound error"),
-        }
+        let err = result.err().unwrap();
+        // MethodNotFoundはDisplay文字列で判定する
+        let err_str = format!("{}", err);
+        assert!(err_str.contains("MethodNotFound"), "Expected MethodNotFound error, got: {}", err_str);
     }
 }

@@ -7,7 +7,7 @@ use super::markdown::parse_markdown_to_text; // Assuming markdown.rs exists
 // Define module first
 mod document_index {
     use std::collections::HashMap;
-    pub type SimpleDocumentIndex = HashMap<String, String>;
+    pub type SimpleDocumentIndex = HashMap<String, (String, String)>; // (text, source)
 }
 
 pub use self::document_index::SimpleDocumentIndex;
@@ -48,7 +48,7 @@ pub fn load_documents(docs_path: Option<PathBuf>) -> Result<SimpleDocumentIndex,
         match fs::read_to_string(path) {
             Ok(content) => {
                 let text = parse_markdown_to_text(&content); // Use the function from markdown module
-                index.insert(path_str, text);
+                index.insert(path_str, (text, "mc-docs".to_string())); // sourceは現状固定
             }
             Err(e) => {
                 eprintln!("Failed to read file {}: {}", path_str, e);
@@ -108,8 +108,8 @@ mod tests {
 
         assert_eq!(index.len(), 2);
         // Use the mocked parse_markdown_to_text result
-        assert_eq!(index.get(&docs_path.join("file1.md").to_string_lossy().to_string()), Some(&"Title 1 Content 1".to_string()));
-        assert_eq!(index.get(&docs_path.join("sub/file2.md").to_string_lossy().to_string()), Some(&"* List item".to_string())); // Mock parse result
+        assert_eq!(index.get(&docs_path.join("file1.md").to_string_lossy().to_string()), Some(&("Title 1 Content 1".to_string(), "mc-docs".to_string())));
+        assert_eq!(index.get(&docs_path.join("sub/file2.md").to_string_lossy().to_string()), Some(&("* List item".to_string(), "mc-docs".to_string()))); // Mock parse result
         assert!(!index.contains_key(&docs_path.join("not_markdown.txt").to_string_lossy().to_string()));
 
         drop(file1);
