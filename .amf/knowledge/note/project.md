@@ -133,3 +133,10 @@
 
 - Unless otherwise specified, coverage reports should be output in human-readable text format using `cargo llvm-cov --report-type=summary`.
 - Markdown or HTML formats may be used in addition for CI or review purposes if needed.
+
+## 10. Test Result Interpretation by Cursor (AI Assistant)
+
+- Cursor (AI assistant) must always check the final summary line of `cargo test` output (e.g., `test result: ok. N passed; 0 failed; ...`) before declaring "all tests passed".
+- If the test run is interrupted (e.g., by Ctrl+C) or if there are any failed tests, Cursor must **not** claim that all tests passed.
+- If there is any ambiguity (e.g., partial output, missing summary, or signs of cancellation), Cursor should report the situation and ask the user for clarification, rather than assuming success.
+- This is especially important for long-running or integration tests (e.g., Qdrant, Docker-based tests) where partial output may be misleading.
