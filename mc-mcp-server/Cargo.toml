@@ -9,5 +9,7 @@ edition = "2021"
 async-trait = "0.1"
 rmcp = { version = "0.1", features = ["server", "transport-io"] }
 tokio = { workspace = true }
-mc-mcp-infrastructure = { path = "../mc-mcp-infrastructure" }
 serde_json = { workspace = true }
+mc-mcp-infrastructure = { path = "../mc-mcp-infrastructure" }
+mc-mcp-application = { path = "../mc-mcp-application" }
+mc-mcp-domain = { path = "../mc-mcp-domain" }

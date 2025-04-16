@@ -17,8 +17,9 @@ use tokio::{
 use mc_mcp_infrastructure::{load_documents, SimpleDocumentIndex};
 use mc_mcp_application::{ReferenceServiceImpl};
 use mc_mcp_infrastructure::{EmbeddingGenerator, VectorDb, EmbeddingModel};
-use qdrant_client::Qdrant;
+use mc_mcp_infrastructure::qdrant_client::Qdrant;
 use mc_mcp_domain::reference::SearchQuery;
+use mc_mcp_application::ReferenceService;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

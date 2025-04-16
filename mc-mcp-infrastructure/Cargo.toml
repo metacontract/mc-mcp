@@ -26,5 +26,5 @@ tonic-error-checking = ["dep:tonic"]
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 testcontainers = { workspace = true }
-serial_test = "3.1"
+serial_test = "2.0"
 simple_logger = "5.0"
