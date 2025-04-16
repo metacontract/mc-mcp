@@ -114,3 +114,8 @@
 *   Integration tests involving Qdrant or other external dependencies are now stable by ensuring TempDir lifecycle management, explicit score_threshold usage, and serializing Docker resource usage.
 *   When a test fails, troubleshoot in the order: external service startup → test logic → threshold design.
 *   The project is now well-suited for a robust TDD cycle (Red → Green → Refactor) with maintainable test and implementation structure.
+
+## 9. TDD Coverage Reporting
+
+- Unless otherwise specified, coverage reports should be output in human-readable text format using `cargo llvm-cov --report-type=summary`.
+- Markdown or HTML formats may be used in addition for CI or review purposes if needed.
