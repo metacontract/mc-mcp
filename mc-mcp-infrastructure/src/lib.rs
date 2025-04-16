@@ -36,7 +36,7 @@ use self::qdrant_client::{
 };
 use uuid::Uuid;
 use anyhow::{anyhow, Result};
-use serial_test::serial;
+use async_trait::async_trait;
 
 /// Parses a Markdown string and returns its plain text representation.
 ///
@@ -289,7 +289,6 @@ pub struct DocumentToUpsert {
 }
 
 /// Represents the Vector Database client and configuration.
-#[derive(Debug)]
 pub struct VectorDb {
     client: Qdrant,
     collection_name: String,
@@ -530,6 +529,22 @@ impl VectorDb {
     }
 }
 
+#[async_trait]
+impl VectorRepository for VectorDb {
+    async fn upsert(&self, doc: DocumentToUpsert) -> anyhow::Result<()> {
+        self.upsert_documents(&[doc]).await
+    }
+    async fn search(&self, query: Vec<f32>, limit: usize) -> anyhow::Result<Vec<DocumentToUpsert>> {
+        let results = self.search(query, limit, None).await?;
+        // ScoredPoint→DocumentToUpsertへ変換
+        let docs = results.into_iter().filter_map(|sp| {
+            let file_path = sp.payload.get("file_path")?.as_str()?.to_string();
+            // ベクトルはwith_vectors: falseなので空ベクタで返す
+            Some(DocumentToUpsert { file_path, vector: vec![] })
+        }).collect();
+        Ok(docs)
+    }
+}
 
 #[cfg(test)]
 #[serial] // Ensure tests run serially due to Docker resource usage
@@ -543,7 +558,7 @@ mod vector_db_tests {
     use tokio;
     use serial_test::serial; // Import the serial attribute macro
     use std::collections::HashMap; // Import HashMap for unwrap_or_else
-    use crate::qdrant_client::qdrant::CollectionStatus; // Use crate path
+    use crate::qdrant_client::qdrant::{CollectionStatus, PointIdChoice}; // Use crate path
 
     const TEST_COLLECTION_NAME: &str = "test_integration_collection";
     const QDRANT_IMAGE_NAME: &str = "qdrant/qdrant";
@@ -572,7 +587,7 @@ mod vector_db_tests {
     #[serial]
     async fn test_vector_db_new_and_initialize() {
         let (_container, qdrant_url) = setup_qdrant_container().await;
-        let client = Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
+        let client = crate::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
         let vector_db = VectorDb::new(client.clone(), TEST_COLLECTION_NAME.to_string(), TEST_VECTOR_DIM)
             .expect("Failed to create VectorDb instance");
 
@@ -596,7 +611,7 @@ mod vector_db_tests {
     #[serial]
     async fn test_vector_db_upsert_and_search() {
         let (_container, qdrant_url) = setup_qdrant_container().await;
-        let client = Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
+        let client = crate::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
         let vector_db = VectorDb::new(client.clone(), TEST_COLLECTION_NAME.to_string(), TEST_VECTOR_DIM)
             .expect("Failed to create VectorDb instance");
         vector_db.initialize_collection().await.expect("Collection initialization failed");
@@ -632,8 +647,8 @@ mod vector_db_tests {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         // Verify point count (should be 3, skipping the invalid one)
-        // let count_response = client.count_points(TEST_COLLECTION_NAME, None, true).await.expect("Count points failed");
-        // assert_eq!(count_response.result.expect("Count result missing").count, 3, "Should have 3 points after upsert (one skipped)");
+        let count_response = client.count_points(TEST_COLLECTION_NAME, None, true).await.expect("Count request failed");
+        assert_eq!(count_response.result.expect("Count result missing").count, 3, "Should have 3 points after upsert (one skipped)");
 
         // Test search (find vector similar to file1)
         let query_vector = vec![0.11, 0.21, 0.31, 0.41];
@@ -644,10 +659,10 @@ mod vector_db_tests {
         assert_eq!(results.len(), 3, "Search should return 3 results (limit)");
 
         let top_result = &results[0];
-        let top_payload_map = top_result.payload.clone();
-        // let top_payload: DocumentPayload = serde_json::from_value(serde_json::Value::Object(top_payload_map.into()))
-        //                                    .expect("Failed to deserialize payload");
-        assert_eq!(top_payload_map.get("file_path").unwrap().as_str().unwrap(), "file1.md", "Top search result mismatch");
+        let top_payload_map = top_result.payload.clone().unwrap_or_else(HashMap::new);
+        let top_payload: DocumentPayload = serde_json::from_value(serde_json::Value::Object(top_payload_map.into()))
+                                           .expect("Failed to deserialize payload");
+        assert_eq!(top_payload.file_path, "file1.md", "Top search result mismatch");
         log::info!("Search results for {:?}: {:?}", query_vector, results);
 
         // Test search (find vector similar to file2)
@@ -657,10 +672,10 @@ mod vector_db_tests {
         let results_2 = search_result_2.unwrap();
         assert_eq!(results_2.len(), 1, "Search 2 should return 1 result");
         let top_result_2 = &results_2[0];
-        let top_payload_map_2 = top_result_2.payload.clone();
-        // let top_payload_2: DocumentPayload = serde_json::from_value(serde_json::Value::Object(top_payload_map_2.into()))
-        //                                    .expect("Failed to deserialize payload 2");
-        assert_eq!(top_payload_map_2.get("file_path").unwrap().as_str().unwrap(), "file2.txt", "Top search result 2 mismatch");
+        let top_payload_map_2 = top_result_2.payload.clone().unwrap_or_else(HashMap::new);
+        let top_payload_2: DocumentPayload = serde_json::from_value(serde_json::Value::Object(top_payload_map_2.into()))
+                                           .expect("Failed to deserialize payload 2");
+        assert_eq!(top_payload_2.file_path, "file2.txt", "Top search result 2 mismatch");
 
     }
 
@@ -669,7 +684,7 @@ mod vector_db_tests {
      #[serial]
      async fn test_vector_db_new_invalid_params() {
          let (_container, qdrant_url) = setup_qdrant_container().await;
-         let client = Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
+         let client = crate::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
 
          let result_empty_name = VectorDb::new(client.clone(), "".to_string(), TEST_VECTOR_DIM);
          assert!(result_empty_name.is_err());
@@ -684,7 +699,7 @@ mod vector_db_tests {
     #[serial]
     async fn test_vector_db_search_wrong_dimension() {
         let (_container, qdrant_url) = setup_qdrant_container().await;
-        let client = Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
+        let client = crate::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
         let vector_db = VectorDb::new(client, TEST_COLLECTION_NAME.to_string(), TEST_VECTOR_DIM)
             .expect("Failed to create VectorDb instance");
         vector_db.initialize_collection().await.expect("Collection initialization failed");
@@ -699,7 +714,7 @@ mod vector_db_tests {
      #[serial]
      async fn test_vector_db_upsert_empty() {
          let (_container, qdrant_url) = setup_qdrant_container().await;
-         let client = Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
+         let client = crate::qdrant_client::Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
          let vector_db = VectorDb::new(client.clone(), TEST_COLLECTION_NAME.to_string(), TEST_VECTOR_DIM)
              .expect("Failed to create VectorDb instance");
          vector_db.initialize_collection().await.expect("Collection initialization failed");
@@ -709,8 +724,8 @@ mod vector_db_tests {
          assert!(upsert_result.is_ok(), "Upserting empty slice failed");
 
          // Verify point count is 0
-         // let count_response = client.count_points(TEST_COLLECTION_NAME, None, true).await.expect("Count points failed");
-         // assert_eq!(count_response.result.expect("Count result missing").count, 0, "Should have 0 points after upserting empty slice");
+         let count_response = client.count_points(TEST_COLLECTION_NAME, None, true).await.expect("Count request failed");
+         assert_eq!(count_response.result.expect("Count result missing").count, 0, "Should have 0 points after upserting empty slice");
 
          let search_result = vector_db.search(vec![0.1, 0.2, 0.3, 0.4], 1, None).await;
          assert!(search_result.is_ok(), "Search after empty upsert failed");
