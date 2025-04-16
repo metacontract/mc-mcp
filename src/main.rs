@@ -434,6 +434,6 @@ mod tests {
         let err = result.err().unwrap();
         // MethodNotFoundはDisplay文字列で判定する
         let err_str = format!("{}", err);
-        assert!(err_str.contains("MethodNotFound"), "Expected MethodNotFound error, got: {}", err_str);
+        assert!(err_str.contains("-32601"), "Expected JSON-RPC MethodNotFound error (-32601), got: {}", err_str);
     }
 }
