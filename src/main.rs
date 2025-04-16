@@ -6,6 +6,7 @@ use rmcp::{
     service::RequestContext,
     RoleServer,
     Error as McpError,
+    Peer,
 };
 use std::sync::{Arc, Mutex};
 use std::future::Future;
@@ -15,6 +16,8 @@ use tokio::{
     io::{stdin, stdout},
     process::Command,
 };
+use rmcp::service::AtomicU32RequestIdProvider;
+use rmcp::model::ClientInfo;
 
 // Declare modules
 mod domain;
@@ -174,12 +177,12 @@ impl ServerHandler for MyHandler {
     ) -> impl Future<Output = Result<model::ListToolsResult, McpError>> + Send + '_ {
         let forge_test_tool = Tool {
             name: "forge_test".to_string().into(),
-            description: "Run 'forge test' in the workspace.".to_string().into(),
-            input_schema: Arc::new(Map::default()), // No args needed for simple forge test
+            description: "Run 'forge test' in the workspace.".into(),
+            input_schema: Arc::new(Map::default()),
         };
         let search_docs_tool = Tool {
             name: "search_docs".to_string().into(),
-            description: "Search metacontract documents semantically.".to_string().into(), // Updated description
+            description: "Search metacontract documents semantically.".into(),
             input_schema: Arc::new(json!({ "type": "object", "properties": { "query": { "type": "string", "description": "Natural language query for semantic search" } }, "required": ["query"] }).as_object().unwrap().clone()),
         };
         let result = model::ListToolsResult {
@@ -306,9 +309,14 @@ mod tests {
             arguments: Some(serde_json::json!({ "query": "test query" }).as_object().unwrap().clone()),
         };
 
+        let (peer, _) = Peer::<RoleServer>::new(
+            std::sync::Arc::new(rmcp::service::AtomicU32RequestIdProvider::default()),
+            rmcp::model::InitializeRequestParam::default(),
+        );
         let result = handler.call_tool(params, RequestContext::<RoleServer> {
             ct: tokio_util::sync::CancellationToken::new(),
             id: rmcp::model::NumberOrString::String("test".to_string().into()),
+            peer,
         }).await;
 
         assert!(result.is_ok());
@@ -330,9 +338,14 @@ mod tests {
             arguments: Some(serde_json::json!({ "query": "unknown query" }).as_object().unwrap().clone()),
         };
 
+        let (peer, _) = Peer::<RoleServer>::new(
+            std::sync::Arc::new(rmcp::service::AtomicU32RequestIdProvider::default()),
+            rmcp::model::InitializeRequestParam::default(),
+        );
         let result = handler.call_tool(params, RequestContext::<RoleServer> {
             ct: tokio_util::sync::CancellationToken::new(),
             id: rmcp::model::NumberOrString::String("test".to_string().into()),
+            peer,
         }).await;
 
         assert!(result.is_ok());
@@ -353,9 +366,14 @@ mod tests {
             arguments: Some(serde_json::json!({}).as_object().unwrap().clone()), // Empty args
         };
 
+        let (peer, _) = Peer::<RoleServer>::new(
+            std::sync::Arc::new(rmcp::service::AtomicU32RequestIdProvider::default()),
+            rmcp::model::InitializeRequestParam::default(),
+        );
         let result = handler.call_tool(params, RequestContext::<RoleServer> {
             ct: tokio_util::sync::CancellationToken::new(),
             id: rmcp::model::NumberOrString::String("test".to_string().into()),
+            peer,
         }).await;
 
         assert!(result.is_ok());
@@ -375,9 +393,14 @@ mod tests {
             arguments: Some(serde_json::json!({ "query": 123 }).as_object().unwrap().clone()), // Query is not a string
         };
 
+        let (peer, _) = Peer::<RoleServer>::new(
+            std::sync::Arc::new(rmcp::service::AtomicU32RequestIdProvider::default()),
+            rmcp::model::InitializeRequestParam::default(),
+        );
         let result = handler.call_tool(params, RequestContext::<RoleServer> {
             ct: tokio_util::sync::CancellationToken::new(),
             id: rmcp::model::NumberOrString::String("test".to_string().into()),
+            peer,
         }).await;
 
         assert!(result.is_ok());
@@ -397,9 +420,14 @@ mod tests {
             arguments: None,
         };
 
+        let (peer, _) = Peer::<RoleServer>::new(
+            std::sync::Arc::new(rmcp::service::AtomicU32RequestIdProvider::default()),
+            rmcp::model::InitializeRequestParam::default(),
+        );
         let result = handler.call_tool(params, RequestContext::<RoleServer> {
             ct: tokio_util::sync::CancellationToken::new(),
             id: rmcp::model::NumberOrString::String("test".to_string().into()),
+            peer,
         }).await;
 
         assert!(result.is_err());
