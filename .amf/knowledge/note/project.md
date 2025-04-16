@@ -45,19 +45,23 @@
     *   **Script Execution:** Use `tokio::process::Command` to asynchronously run Foundry commands (`forge test`, `forge script`, etc.). Capture and parse stdout/stderr/exit codes. Handle errors robustly. Ensure non-blocking execution.
     *   **Security:** Validate inputs rigorously. Require explicit user confirmation via the MCP client for any command execution.
 *   **`reference` Function:**
-    *   **Data Source:** Markdown files in `metacontract/mc/docs`.
-    *   **Parsing:** Use `pulldown-cmark` or `comrak` to parse Markdown.
+    *   **Data Sources:**
+        *   **Primary:** `metacontract/mc/docs` directory. Index for this source will be pre-built via CI/CD and distributed (e.g., bundled with release or downloaded on first run).
+        *   **Additional:** User-configurable sources (e.g., local directories, other Git repositories containing Markdown documentation like Solidity docs). Specified via configuration file.
+    *   **Parsing:** Use `pulldown-cmark` or `comrak` to parse Markdown from all sources.
     *   **Indexing (Vector Search):**
-        1.  Chunk documents meaningfully.
-        2.  Generate text embeddings locally using `fastembed-rs` or similar Rust library with a model like `all-MiniLM-L6-v2`.
-        3.  Store chunks and embeddings in a local Vector DB (Qdrant via Docker or LanceDB embedded).
-        4.  On query: generate query embedding, perform similarity search in Vector DB.
-        5.  Return relevant chunks via MCP `Tool` response.
+        1.  **Pre-built Index (`mc` docs):** Load the distributed index data into the local Vector DB (Qdrant).
+        2.  **Additional Sources:** On first run or via a dedicated command, fetch/read documents from configured sources.
+        3.  Chunk documents meaningfully. Add metadata indicating the document source (e.g., `source: "mc-docs"`, `source: "solidity-docs"`).
+        4.  Generate text embeddings locally using `fastembed-rs` or similar Rust library with a model like `all-MiniLM-L6-v2`.
+        5.  Store/update chunks and embeddings in the local Vector DB (Qdrant), likely within a single collection differentiated by metadata.
+        6.  **Search:** On query, generate query embedding, perform similarity search in the Vector DB. Optionally filter by source metadata.
+        7.  Return relevant chunks via MCP `Tool` response, potentially indicating the source.
     *   **MCP Implementation:** Expose search functionality as an MCP `Tool` accepting natural language queries.
 
 ## 5. Supporting Infrastructure
 
-*   **Configuration:** Use `figment` for flexible loading from files (e.g., TOML) and environment variables. Use `serde` for defining config structures.
+*   **Configuration:** Use `figment` for flexible loading from files (e.g., TOML) and environment variables. Define config structures (`serde`) including sections for specifying `reference` data sources (type, location/URL, path within repo). Use `serde` for defining config structures.
 *   **Logging:** Use `tracing` with `tracing-subscriber` for structured, asynchronous logging. Log to stderr for `stdio` transport.
 *   **Error Handling:** Use `Result<T, E>` extensively. Define custom error types per layer using `thiserror`. Propagate errors clearly. Avoid `panic!`.
 *   **Data Persistence:** Use the local file system for caching. Use the chosen Vector DB (Qdrant via `qdrant-client`) for `reference` function indexes. Consider SQLite (`rusqlite`) if a non-vector structured index is needed.
@@ -85,9 +89,12 @@
     *   Setup local Vector DB (Qdrant - `qdrant-client` and `VectorDb` struct implemented).
     *   Implement embedding generation pipeline for parsed docs (Completed - Pipeline logic exists).
     *   Implement similarity search logic (Completed - Integrated `VectorDb::search` in Application layer).
-    *   Update MCP `Tool` for semantic search (TODO).
-    *   **Add integration tests for the full ReferenceService pipeline (embedding generation and search). (Completed - All tests pass with Qdrant startup, TempDir lifecycle, and score_threshold handling fixed)**
-    *   **Goal:** Semantic search over `mc` docs via natural language query. (**Integration tests passing, TDD cycle stabilized**)
+    *   **Implement logic to load pre-built `mc` docs index.** (TODO)
+    *   **Implement configuration handling and indexing logic for additional user-defined document sources.** (TODO)
+    *   **Update VectorDB interaction to handle source metadata.** (TODO)
+    *   Update MCP `Tool` for semantic search, potentially including source info in results. (TODO)
+    *   Add integration tests for the full ReferenceService pipeline (embedding generation and search). (Completed - All tests pass with Qdrant startup, TempDir lifecycle, and score_threshold handling fixed)
+    *   **Goal:** Semantic search over `mc` docs *and* user-added docs via natural language query. (**Integration tests passing for core search, TDD cycle stabilized**)
 *   **Phase 4: `tool` Expansion & Polish**
     *   Implement remaining `tool` functions (setup, deploy, upgrade).
     *   Improve error handling and user feedback via MCP.
@@ -104,9 +111,10 @@
 5.  Implement Phase 3:
     *   `VectorDb` and `EmbeddingGenerator` implemented and tested. (Completed)
     *   Application layer integration completed. (Completed)
-    *   Resolve compilation errors and complete integration tests for the ReferenceService pipeline. (**Blocked** - See Phase 3 notes.)
-    *   Update the MCP `Tool` to utilize the semantic search functionality. (TODO)
-6.  Establish CI/CD pipeline. (TODO)
+    *   Resolve compilation errors and complete integration tests for the ReferenceService pipeline. (**Blocked** - See Phase 3 notes.) -> (Integration tests passing, TDD cycle stabilized)
+    *   Implement pre-built index loading and additional source indexing. (TODO)
+    *   Update the MCP `Tool` to utilize the enhanced semantic search functionality. (TODO)
+6.  Establish CI/CD pipeline (including pre-building `mc` docs index). (TODO)
 7.  Monitor MCP specification and `metacontract` evolution for necessary adaptations. (Ongoing)
 
 ## 8. Recommended TDD Practices
