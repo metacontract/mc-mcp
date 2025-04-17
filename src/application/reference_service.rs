@@ -155,7 +155,63 @@ impl ReferenceService for ReferenceServiceImpl {
                         }
                     }
                 }
-                // Add other source types (Git, Http) later
+                SourceType::Github => {
+                    use tempfile::tempdir;
+                    use std::process::Command;
+                    use std::path::Path;
+                    let repo = match &source.repo {
+                        Some(r) => r,
+                        None => {
+                            error!("No repo specified for github source '{}'. Skipping.", source.name);
+                            had_error = true;
+                            continue;
+                        }
+                    };
+                    let branch = source.branch.as_deref().unwrap_or("main");
+                    let github_path = source.github_path.as_deref().unwrap_or(".");
+                    let tmp_dir = match tempdir() {
+                        Ok(d) => d,
+                        Err(e) => {
+                            error!("Failed to create temp dir for github source '{}': {}", source.name, e);
+                            had_error = true;
+                            continue;
+                        }
+                    };
+                    let clone_dir = tmp_dir.path();
+                    let repo_url = format!("https://github.com/{}.git", repo);
+                    info!("Cloning {} (branch: {}) to {:?}...", repo_url, branch, clone_dir);
+                    let status = Command::new("git")
+                        .args(["clone", "--depth", "1", "--branch", branch, &repo_url, clone_dir.to_str().unwrap()])
+                        .status();
+                    match status {
+                        Ok(s) if s.success() => {
+                            let docs_dir = clone_dir.join(github_path);
+                            info!("Indexing docs from github source '{}' at {:?}", source.name, docs_dir);
+                            match load_documents_from_source(&docs_dir) {
+                                Ok(documents) => {
+                                    if let Err(e) = self.process_and_upsert_source(&source.name, &documents).await {
+                                        error!("Error processing github source '{}': {}", source.name, e);
+                                        had_error = true;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Error loading documents for github source '{}': {}", source.name, e);
+                                    had_error = true;
+                                }
+                            }
+                        }
+                        Ok(s) => {
+                            error!("git clone failed for github source '{}': exit code {:?}", source.name, s.code());
+                            had_error = true;
+                        }
+                        Err(e) => {
+                            error!("Failed to run git clone for github source '{}': {}", source.name, e);
+                            had_error = true;
+                        }
+                    }
+                    // tmp_dir is cleaned up automatically
+                }
+                // Add other source types (Http) later
                 // _ => {
                 //     warn!("Source type {:?} for '{}' is not yet supported.", source.source_type, source.name);
                 // }

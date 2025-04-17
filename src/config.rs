@@ -7,16 +7,23 @@ use anyhow::Result;
 pub enum SourceType {
     #[serde(rename = "local")]
     Local,
-    // TODO: Add Git, Http later
+    #[serde(rename = "github")]
+    Github,
+    // TODO: Add Http later
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DocumentSource {
     pub name: String, // Identifier for the source (e.g., "mc-docs", "my-project-docs")
     pub source_type: SourceType,
-    pub path: PathBuf, // For Local type
-    // pub url: Option<String>, // For Git/Http types
-    // pub branch: Option<String>, // For Git type
+    #[serde(default)]
+    pub path: PathBuf, // For Local type, or relative path within repo for Github
+    #[serde(default)]
+    pub repo: Option<String>, // For Github type: "owner/repo"
+    #[serde(default)]
+    pub branch: Option<String>, // For Github type: branch name (default: main)
+    #[serde(default, rename = "github_path")]
+    pub github_path: Option<String>, // For Github type: path within repo (e.g., "site/docs")
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
