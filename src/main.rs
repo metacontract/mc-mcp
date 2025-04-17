@@ -38,11 +38,19 @@ use qdrant_client::qdrant::{ScoredPoint, PointStruct};
 // Import BoxFuture for mock impl signature
 use futures::future::BoxFuture;
 
+use std::time::Duration;
+use std::thread::sleep;
+
 const PREBUILT_INDEX_URL: &str = "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
 const PREBUILT_INDEX_DEST: &str = "artifacts/prebuilt_index.jsonl.gz";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Qdrant起動確認（Docker経由）
+    if let Err(e) = ensure_qdrant_via_docker() {
+        eprintln!("{e}");
+        std::process::exit(1);
+    }
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     log::info!("mc-mcp server (MCP over stdio) started.");
 
@@ -474,4 +482,49 @@ mod tests {
             other_kind => panic!("Expected Text content for failure, found {:?}", other_kind),
         };
     }
+}
+
+fn ensure_qdrant_via_docker() -> Result<(), String> {
+    // 1. Check if Docker is installed
+    let docker_check = std::process::Command::new("docker").arg("--version").output();
+    if docker_check.is_err() {
+        return Err("Docker is not installed".to_string());
+    }
+
+    // 2. Check if Qdrant container is already running
+    let ps = std::process::Command::new("docker")
+        .args(["ps", "--filter", "name=qdrant", "--format", "{{.Names}}"])
+        .output()
+        .map_err(|e| format!("Failed to execute docker ps: {e}"))?;
+    let ps_stdout = String::from_utf8_lossy(&ps.stdout);
+    if ps_stdout.contains("qdrant") {
+        println!("✅ Qdrant is already running in Docker.");
+    } else {
+        // 3. Start Qdrant container
+        println!("Qdrant container not found. Starting Qdrant in Docker...");
+        let run = std::process::Command::new("docker")
+            .args(["run", "-d", "--name", "qdrant", "-p", "6333:6333", "-p", "6334:6334", "qdrant/qdrant"])
+            .output()
+            .map_err(|e| format!("Failed to execute docker run: {e}"))?;
+        if !run.status.success() {
+            return Err(format!("Failed to start Qdrant container: {}", String::from_utf8_lossy(&run.stderr)));
+        }
+        println!("Qdrant container started.");
+    }
+
+    // 4. Health check (HTTP endpoint retry)
+    let endpoint = "http://localhost:6333/collections";
+    for i in 1..=5 {
+        match ureq::get(endpoint).timeout(std::time::Duration::from_millis(1000)).call() {
+            Ok(resp) if resp.status() == 200 => {
+                println!("✅ Qdrant is running and connected!");
+                return Ok(());
+            }
+            _ => {
+                println!("Waiting for Qdrant to start... (Retry {i}/5)");
+                sleep(Duration::from_secs(2));
+            }
+        }
+    }
+    Err("Failed to connect to Qdrant. Check Docker and network settings.".to_string())
 }

@@ -2028,6 +2028,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tonic",
+ "ureq",
  "uuid",
  "walkdir",
  "wiremock",
