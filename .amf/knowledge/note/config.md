@@ -1,4 +1,4 @@
-# ReferenceConfig settings (Config.toml)
+# ReferenceConfig settings (mcp_config.toml)
 
 - [[sources]]: List of document sources to index
     - path: Path to a directory containing Markdown files (required; relative to repo or absolute)

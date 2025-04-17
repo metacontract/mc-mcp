@@ -1,12 +1,17 @@
-[sources]
-[[sources]]
-path = "metacontract/mc/site/docs"
-source = "mc-docs"
+[reference]
+prebuilt_index_path = "artifacts/prebuilt_index.jsonl.gz"
 
-[[sources]]
-path = "docs/solidity"
-source = "solidity-docs"
+# [[reference.sources]]
+# name = "mc-docs"
+# source_type = "local"
+# path = "metacontract/mc/site/docs"
 
-[[sources]]
-path = "docs/user"
-source = "user-docs"
+# [[reference.sources]]
+# name = "solidity-docs"
+# source_type = "local"
+# path = "docs/solidity"
+
+# [[reference.sources]]
+# name = "user-docs"
+# source_type = "local"
+# path = "docs/user"

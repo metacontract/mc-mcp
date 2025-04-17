@@ -54,7 +54,7 @@
 
 ## 6. Usage & Distribution
 
-*   **crates.io:** Project is ready for crates.io publication (see Cargo.toml)
+*   **crates.io:** Project is ready for crates.io publication (see mcp_config.toml)
 *   **Prebuilt index:** Not included in crate; always downloaded from GitHub Releases (latest)
 *   **.gitignore:** Artifacts and large files are excluded from git
 *   **README:** To be generated from this document
