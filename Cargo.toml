@@ -2,6 +2,15 @@
 name = "mc-mcp"
 version = "0.1.0"
 edition = "2021"
+authors = ["ea <ecdysis-xyz@proton.me>", "kai <kai.hiroi@pm.me>"]
+description = "A Model Context Protocol (MCP) server for metacontract smart contract development."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/metacontract/mc-mcp"
+homepage = "https://github.com/metacontract/mc-mcp"
+documentation = "https://docs.rs/mc-mcp"
+readme = "README.md"
+keywords = ["mcp", "metacontract", "semantic-search", "server"]
+categories = ["command-line-utilities", "development-tools"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
