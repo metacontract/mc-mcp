@@ -52,7 +52,7 @@ jobs:
           override: true
 
       - name: Build prebuilt index
-        run: cargo run --bin build_index -- mc/site/docs artifacts/prebuilt_index.jsonl
+        run: cargo run --bin build_index -- mc/site/docs artifacts/prebuilt_index.jsonl || ls -lR mc/site/docs || ls -lR mc/
 
       - name: Compress index
         run: gzip -9 -f artifacts/prebuilt_index.jsonl
@@ -62,6 +62,3 @@ jobs:
         with:
           name: prebuilt_index.jsonl.gz
           path: artifacts/prebuilt_index.jsonl.gz
-
-      - name: Debug List mc/site/docs
-        run: ls -lR mc/site/docs || ls -lR mc/
