@@ -115,7 +115,7 @@ async fn main() -> Result<()> {
     let shutdown_reason = server_handle.waiting().await?;
     log::info!("mc-mcp server finished. Reason: {:?}", shutdown_reason);
 
-    download_if_not_exists(PREBUILT_INDEX_URL, PREBUILT_INDEX_DEST).await?;
+    download_if_not_exists(PREBUILT_INDEX_URL, PREBUILT_INDEX_DEST)?;
 
     Ok(())
 }
