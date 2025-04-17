@@ -38,6 +38,9 @@ use qdrant_client::qdrant::{ScoredPoint, PointStruct};
 // Import BoxFuture for mock impl signature
 use futures::future::BoxFuture;
 
+const PREBUILT_INDEX_URL: &str = "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
+const PREBUILT_INDEX_DEST: &str = "artifacts/prebuilt_index.jsonl.gz";
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -111,6 +114,8 @@ async fn main() -> Result<()> {
     log::info!("mc-mcp server running, waiting for completion...");
     let shutdown_reason = server_handle.waiting().await?;
     log::info!("mc-mcp server finished. Reason: {:?}", shutdown_reason);
+
+    download_if_not_exists(PREBUILT_INDEX_URL, PREBUILT_INDEX_DEST).await?;
 
     Ok(())
 }
@@ -470,9 +475,3 @@ mod tests {
         };
     }
 }
-
-const PREBUILT_INDEX_URL: &str = "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
-const PREBUILT_INDEX_DEST: &str = "artifacts/prebuilt_index.jsonl.gz";
-
-download_if_not_exists(PREBUILT_INDEX_URL, PREBUILT_INDEX_DEST)?;
-
