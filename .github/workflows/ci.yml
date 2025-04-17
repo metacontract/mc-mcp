@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           repository: metacontract/mc
-          path: mc/site/docs
+          path: mc
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
