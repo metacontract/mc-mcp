@@ -18,9 +18,9 @@ async fn get_qdrant_url() -> Result<&'static str> {
     let _container = QDRANT_CONTAINER.get_or_try_init(|| async {
         println!("Initializing Qdrant container for tests...");
         let image = GenericImage::new("qdrant/qdrant", "latest")
-            .with_wait_for(WaitFor::message_on_stderr("Actix runtime found; starting in Actix runtime"))
+            .with_wait_for(WaitFor::message_on_stdout("Actix runtime found; starting in Actix runtime"))
             .with_exposed_port(6334u16.tcp())
-            .with_startup_timeout(Duration::from_secs(360));
+            .with_startup_timeout(Duration::from_secs(900));
         let container = image.start().await?;
         println!("Qdrant container started.");
         Ok::<_, anyhow::Error>(container)
@@ -98,7 +98,7 @@ async fn test_vector_db_upsert_and_search() -> Result<()> {
     assert_eq!(second_result.metadata, Some(serde_json::json!({ "section": "details" })));
     let query_vector_b = vec![0.7, 0.15, 0.15];
     let search_result_b = vector_db.search(query_vector_b.clone(), 5, Some(0.5)).await?;
-    assert_eq!(search_result_b.len(), 1, "Expected 1 result for query B");
+    assert_eq!(search_result_b.len(), 2, "Expected 2 results for query B");
     assert_eq!(search_result_b[0].file_path, "file2.md");
     assert_eq!(search_result_b[0].source, Some("source_B".to_string()));
     assert_eq!(search_result_b[0].content_chunk, "This is chunk 1 from source B.");

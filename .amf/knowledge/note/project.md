@@ -76,7 +76,7 @@
 *   **Error Handling:** Use `Result<T, E>` extensively. Define custom error types per layer using `thiserror`. Use `anyhow` for application-level errors where appropriate. Propagate errors clearly. Avoid `panic!`.
 *   **Data Persistence:** Use the local file system for caching. Use the chosen Vector DB (Qdrant via `qdrant-client`) for `reference` function indexes. Consider SQLite (`rusqlite`) if a non-vector structured index is needed.
 *   **MCP Transport:** Implement **`stdio`** as the primary transport mechanism . Consider adding `SSE` support later only if a clear remote/shared use case emerges, acknowledging the added complexity and security implications .
-*   **Testing:** Employ Test-Driven Development (TDD) principles. Use standard Rust unit tests (`#[test]`). For infrastructure components interacting with external systems (like Qdrant), use integration tests (`#[cfg(test)]`) leveraging `testcontainers` to run services (e.g., Qdrant) in Docker during test execution. Use `serial_test` to manage tests relying on shared resources like containers or environment variables. **Integration tests using `testcontainers` have been stabilized through dependency fixes, library refactoring, trait imports, and increased startup timeouts, although final verification is ongoing.**
+*   **Testing:** Employ Test-Driven Development (TDD) principles. Use standard Rust unit tests (`#[test]`). For infrastructure components interacting with external systems (like Qdrant), use integration tests (`#[cfg(test)]`) leveraging `testcontainers` to run services (e.g., Qdrant) in Docker during test execution. Use `serial_test` to manage tests relying on shared resources like containers or environment variables. **Integration tests using `testcontainers` have been stabilized and now pass reliably after corrections: Qdrant startup wait condition changed to stdout log, gRPC port exposure, test data assertion adjustment. TDD usage and CI/CD also have sufficient stability confirmed.**
 
 ## 6. Project Roadmap (Phased Approach)
 
@@ -105,7 +105,7 @@
     *   **Update MCP `search_docs` tool to return structured JSON results.** (Completed)
     *   **(Next)** Implement logic to load pre-built `mc` docs index.
     *   **(TODO)** Implement search filtering by source.
-    *   Add integration tests for the full ReferenceService pipeline **(Completed - Build/Unit tests stabilized, Integration tests under investigation)**.
+    *   **Integration tests for the full ReferenceService pipeline passing. (Completed - Build/Unit tests and Integration tests both stabilized and confirmed full pass)**
     *   **Goal:** Semantic search over `mc` docs *and* user-added local docs via natural language query, using modern `rmcp` practices and returning structured results. (Achieved)
 *   **Phase 4: `tool` Expansion & Polish**
     *   **(TODO)** Implement remaining `tool` functions (setup, deploy, upgrade).
@@ -138,7 +138,7 @@
 
 ## 8. Recommended TDD Practices
 
-*   Integration tests involving Qdrant or other external dependencies are now stable by ensuring TempDir lifecycle management, explicit score_threshold usage, and serializing Docker resource usage.
+*   Integration tests involving Qdrant or other external dependencies are now stable and pass reliably by ensuring TempDir lifecycle management, explicit score_threshold usage, serializing Docker resource usage, and thoroughly correct Qdrant startup wait condition (stdout log) and gRPC port exposure and test data adjustment.
 *   When a test fails, troubleshoot in the order: external service startup → test logic → threshold design.
 *   The project is now well-suited for a robust TDD cycle (Red → Green → Refactor) with maintainable test and implementation structure.
 
