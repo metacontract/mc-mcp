@@ -57,8 +57,11 @@ jobs:
           toolchain: stable
           override: true
 
+      - name: Prepare artifacts directory
+        run: mkdir -p artifacts
+
       - name: Build prebuilt index
-        run: cargo run --bin build_index -- mc/site/docs artifacts/prebuilt_index.jsonl || ls -lR mc/site/docs || ls -lR mc/
+        run: cargo run --bin build_index -- mc/site/docs artifacts/prebuilt_index.jsonl || ls -lR mc/site/docs
 
       - name: Compress index
         run: gzip -9 -f artifacts/prebuilt_index.jsonl
