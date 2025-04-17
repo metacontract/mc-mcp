@@ -16,6 +16,7 @@ use tokio::{
     process::Command,
 };
 use serde::{Deserialize};
+use serde_json::Value as JsonValue;
 
 // Declare modules
 mod domain;
@@ -24,7 +25,8 @@ mod application;
 mod infrastructure;
 
 // Update use paths to crate::<module>::...
-use crate::application::reference_service::{ReferenceService, ReferenceServiceImpl};
+use crate::application::reference_service::ReferenceServiceImpl;
+use crate::domain::reference::ReferenceService;
 use crate::infrastructure::embedding::EmbeddingGenerator;
 use crate::infrastructure::EmbeddingModel;
 use crate::infrastructure::vector_db::{VectorDb, qdrant_client};
@@ -140,22 +142,24 @@ impl MyHandler {
         };
         match self.reference_service.search_documents(search_query, None).await {
             Ok(results) => {
-                let content_results: Vec<Content> = if results.is_empty() {
-                    vec![Content::text(format!("No documents found matching '{}'.", query))]
-                } else {
-                    results.into_iter().map(|r| {
-                        let source_info = r.source.map_or_else(|| "Unknown Source".to_string(), |s| s);
-                        let metadata_info = r.metadata.map_or_else(|| "".to_string(), |m| format!("\nMetadata: `{}`", m));
-                        let content_text = format!(
-                            "**Result from `{}` (Score: {:.3})**\nFile: `{}`{}
-\n```\n{}
-```",
-                            source_info, r.score, r.file_path, metadata_info, r.content_chunk
-                        );
-                        Content::text(content_text)
-                    }).collect()
-                };
-                Ok(CallToolResult::success(content_results))
+                match serde_json::to_value(results) {
+                    Ok(json_value) => {
+                        log::debug!("Successfully serialized search results to JSON");
+                        match Content::json(json_value) {
+                            Ok(content) => Ok(CallToolResult::success(vec![content])),
+                            Err(e) => {
+                                log::error!("Failed to create JSON Content: {:?}", e);
+                                let err_msg = format!("Failed to create JSON response: {:?}", e);
+                                Ok(CallToolResult::error(vec![Content::text(err_msg)]))
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to serialize search results to JSON: {}", e);
+                        let err_msg = format!("Failed to serialize search results: {}", e);
+                        Ok(CallToolResult::error(vec![Content::text(err_msg)]))
+                    }
+                }
             }
             Err(e) => {
                 log::error!("Semantic search failed: {}", e);
@@ -311,11 +315,15 @@ mod tests {
         assert!(result.is_success());
         let content_vec = result.into_success().unwrap();
         assert_eq!(content_vec.len(), 1);
-        let content_result = content_vec[0].try_into_text().expect("Expected text content");
-        assert!(content_result.text.contains("**Result from `SourceA` (Score: 0.850)**"));
-        assert!(content_result.text.contains("File: `a.md`"));
-        assert!(content_result.text.contains("Metadata: `{"tag":"test"}`"));
-        assert!(content_result.text.contains("Chunk 1 content"));
+        let content_result = content_vec[0].try_into_json().expect("Expected JSON content");
+        let deserialized_results: Vec<SearchResult> = serde_json::from_value(content_result.json).expect("Failed to deserialize JSON");
+
+        assert_eq!(deserialized_results.len(), 1);
+        assert_eq!(deserialized_results[0].file_path, "a.md");
+        assert_eq!(deserialized_results[0].score, 0.85);
+        assert_eq!(deserialized_results[0].source, Some("SourceA"));
+        assert_eq!(deserialized_results[0].content_chunk, "Chunk 1 content");
+        assert_eq!(deserialized_results[0].metadata, Some(json!({ "tag": "test" })));
     }
 
     #[tokio::test]
@@ -330,8 +338,10 @@ mod tests {
         assert!(result.is_success());
         let content_vec = result.into_success().unwrap();
         assert_eq!(content_vec.len(), 1);
-        let content_result = content_vec[0].try_into_text().expect("Expected text content");
-        assert!(content_result.text.contains("No documents found matching 'nonexistent'."));
+        let content_result = content_vec[0].try_into_json().expect("Expected JSON content");
+        let deserialized_results: Vec<SearchResult> = serde_json::from_value(content_result.json).expect("Failed to deserialize JSON");
+
+        assert!(deserialized_results.is_empty());
     }
 
      #[tokio::test]

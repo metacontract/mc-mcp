@@ -5,6 +5,7 @@ use walkdir::WalkDir;
 use super::markdown::parse_markdown_to_text; // Assuming markdown.rs exists
 use serde_json;
 use log::{debug, error, warn};
+use anyhow::Result;
 
 // Define module first
 mod document_index {

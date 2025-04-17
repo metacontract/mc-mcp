@@ -13,11 +13,13 @@ use log::{info, error, warn};
 // Remove unused Value import
 // use serde_json::Value;
 
-// Use downcast_rs for trait object downcasting in tests
-use downcast_rs::Downcast;
+// Remove Downcast import here, it should be in domain/reference.rs where the trait is defined
+// use downcast_rs::Downcast;
 
 // Assuming VectorRepository trait exists in domain
 use crate::domain::vector_repository::VectorRepository;
+// Import the actual ReferenceService trait from the domain module
+use crate::domain::reference::ReferenceService;
 // Remove unused ReferenceConfig
 // use crate::config::ReferenceConfig;
 use crate::config::{DocumentSource, SourceType};
@@ -26,15 +28,6 @@ use crate::config::{DocumentSource, SourceType};
 use crate::infrastructure::file_system::load_documents_from_source;
 // Use the concrete DocumentToUpsert from vector_db
 use crate::infrastructure::vector_db::DocumentToUpsert;
-
-// Define the interface for reference-related operations
-#[async_trait::async_trait]
-pub trait ReferenceService: Send + Sync + Downcast {
-    async fn index_documents(&self, docs_path: Option<PathBuf>) -> Result<()>;
-    async fn index_sources(&self, sources: &[DocumentSource]) -> Result<()>;
-    async fn search_documents(&self, query: SearchQuery, score_threshold: Option<f32>) -> Result<Vec<SearchResult>>;
-}
-downcast_rs::impl_downcast!(ReferenceService);
 
 // Implementation using infrastructure components
 pub struct ReferenceServiceImpl {
@@ -132,23 +125,7 @@ impl ReferenceServiceImpl {
 
 #[async_trait::async_trait]
 impl ReferenceService for ReferenceServiceImpl {
-    // This method seems unused now, replaced by index_sources
-    /*
-    async fn index_documents(&self, docs_path: Option<PathBuf>) -> Result<()> {
-        log::info!("Indexing documents from path: {:?}", docs_path);
-        // Placeholder implementation - replace with actual logic
-        // 1. Find documents in the specified path (or default)
-        // 2. For each document:
-        //    a. Read content
-        //    b. Chunk the document
-        //    c. Generate embeddings for chunks
-        //    d. Upsert chunks/embeddings to the repository
-        let path_to_index = docs_path.unwrap_or_else(|| PathBuf::from("./docs")); // Example default path
-        log::warn!("index_documents not fully implemented. Indexing path: {:?}", path_to_index);
-        // In a real implementation, you would call self.repository.upsert_documents here
-        Ok(())
-    }
-    */
+    // Ensure the entire commented-out block for index_documents is removed
 
     async fn index_sources(&self, sources: &[DocumentSource]) -> Result<()> {
         info!("Starting indexing for {} configured sources...", sources.len());

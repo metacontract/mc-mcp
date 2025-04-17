@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+use anyhow::Result;
+use downcast_rs::Downcast;
+use crate::config::DocumentSource;
 
 // Represents a query for searching documents
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,3 +29,13 @@ pub struct SearchResult {
     pub metadata: Option<serde_json::Value>, // Optional metadata associated with the chunk
     // pub fragment: Option<DocumentFragment>, // Removed/Replaced by content_chunk and metadata
 }
+
+// Define the interface for reference-related operations
+#[async_trait::async_trait]
+pub trait ReferenceService: Send + Sync + Downcast {
+    // Comment out the unused method definition
+    // async fn index_documents(&self, docs_path: Option<PathBuf>) -> Result<()>;
+    async fn index_sources(&self, sources: &[DocumentSource]) -> Result<()>;
+    async fn search_documents(&self, query: SearchQuery, score_threshold: Option<f32>) -> Result<Vec<SearchResult>>;
+}
+downcast_rs::impl_downcast!(ReferenceService);

@@ -8,7 +8,7 @@
 *   **Protocol:** Model Context Protocol (MCP) - An open protocol standardizing interactions between AI applications (clients/hosts like IDEs) and external tools/data sources (servers like `mc-mcp`) .
 *   **Core Functionality (MCP Tools):** Implemented using `rmcp` SDK's `#[tool]` and `#[tool(tool_box)]` annotations.
     *   **`forge_test`:** Run `forge test` in the workspace.
-    *   **`search_docs`:** Offer guidance based on `mc` documentation ([https://mc-book.ecdysis.xyz](https://mc-book.ecdysis.xyz), `docs` directory in the `mc` repo) and configured sources, covering best practices, operations (including upgrades), and planning information. Utilizes internal Vector DB search capabilities.
+    *   **`search_docs`:** Offer guidance based on `mc` documentation ([https://mc-book.ecdysis.xyz](https://mc-book.ecdysis.xyz), `docs` directory in the `mc` repo) and configured sources, covering best practices, operations (including upgrades), and planning information. Utilizes internal Vector DB search capabilities. **Returns structured JSON results (`Vec<SearchResult>`).**
 
 ## 2. Technology Stack
 
@@ -59,14 +59,15 @@
         4.  Generate text embeddings locally using `fastembed-rs` (`EmbeddingGenerator`).
         5.  Store/update chunks, embeddings, and payload (source, file_path, content_chunk, metadata) in the local Vector DB (Qdrant) via `VectorRepository::upsert_documents`.
         6.  **Search:** On query, generate query embedding, perform similarity search in the Vector DB via `VectorRepository::search`. Optionally filter by source metadata (TODO).
-        7.  **Return Results:** Currently returns formatted text (`Content::text`). **Needs update to return richer `SearchResult` data consistently via the `CallToolResult`.**
+        7.  **Return Results:** Returns structured JSON (`Vec<SearchResult>`) via `Content::json()` in the `CallToolResult`.
     *   **Status:**
         *   Semantic search pipeline implemented and tests stabilized.
-        *   **Configuration loading (`figment`, `mcp_config.toml`) for sources implemented.**
+        *   **Configuration loading (`figment`, `mcp_config.toml`) for sources implemented.** [configuration spec](./config.md)
         *   **Indexing logic updated to handle multiple configured local sources.**
         *   **Vector DB interaction updated to store and retrieve source, content_chunk, and metadata in payload.**
         *   **MCP Tool implemented using `#[tool]` annotation.**
-    *   **Next:** Update MCP Tool response format. Implement pre-built index loading. Support Git/HTTP sources. Add search filtering.
+        *   **MCP Tool response updated to return structured JSON.** (Completed)
+    *   **Next:** Implement pre-built index loading. Support Git/HTTP sources. Add search filtering.
 
 ## 5. Supporting Infrastructure
 
@@ -101,10 +102,11 @@
     *   **Implement configuration handling (`figment`) and indexing logic for additional user-defined local document sources.** (Completed)
     *   **Update VectorDB interaction to handle source metadata, content chunks in payload.** (Completed)
     *   **Refactor MCP Tool implementation to use `#[tool]` annotations.** (Completed)
-    *   **(Next)** Update MCP `Tool` for semantic search to return richer `SearchResult` info (source, chunk, metadata) consistently.
-    *   **(TODO)** Implement logic to load pre-built `mc` docs index.
+    *   **Update MCP `Tool` for semantic search to return structured JSON results.** (Completed)
+    *   **(Next)** Implement logic to load pre-built `mc` docs index.
+    *   **(TODO)** Implement search filtering by source.
     *   Add integration tests for the full ReferenceService pipeline (Completed - Core tests passing).
-    *   **Goal:** Semantic search over `mc` docs *and* user-added local docs via natural language query, using modern `rmcp` practices. (Core functionality achieved, output format needs refinement)
+    *   **Goal:** Semantic search over `mc` docs *and* user-added local docs via natural language query, using modern `rmcp` practices and returning structured results. (Achieved)
 *   **Phase 4: `tool` Expansion & Polish**
     *   **(TODO)** Implement remaining `tool` functions (setup, deploy, upgrade).
     *   Improve error handling and user feedback via MCP.
@@ -124,9 +126,9 @@
     *   Integration tests for the ReferenceService pipeline passing. (Completed)
     *   Configuration loading and indexing for multiple local sources implemented. (Completed)
     *   Vector DB payload updated for source, chunk, metadata. (Completed)
-    *   **MCP Tool implementation refactored to use `#[tool]` annotations.** (Completed)
-    *   **(Next)** Update the MCP `search_docs` tool in `main.rs` to return richer results consistently (e.g., structured data instead of just formatted text).
-    *   **(TODO)** Implement pre-built index loading.
+    *   MCP Tool implementation refactored to use `#[tool]` annotations. (Completed)
+    *   **MCP `search_docs` tool updated to return structured JSON results.** (Completed)
+    *   **(Next)** Implement pre-built index loading.
     *   **(TODO)** Implement search filtering by source.
 6.  Establish CI/CD pipeline (including pre-building `mc` docs index). (TODO)
 7.  Monitor MCP specification and `metacontract` evolution for necessary adaptations. (Ongoing)
