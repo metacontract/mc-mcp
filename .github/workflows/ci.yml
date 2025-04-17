@@ -62,3 +62,6 @@ jobs:
         with:
           name: prebuilt_index.jsonl.gz
           path: artifacts/prebuilt_index.jsonl.gz
+
+      - name: Debug List mc/site/docs
+        run: ls -lR mc/site/docs || ls -lR mc/
