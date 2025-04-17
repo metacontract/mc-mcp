@@ -305,4 +305,62 @@ mod tests {
 
     // TODO: Add test for index_sources handling load errors (Maybe hard with current setup)
     // TODO: Add test for index_sources handling upsert errors (Maybe hard with current setup)
+
+    #[tokio::test]
+    #[serial]
+    async fn test_prebuilt_index_load_and_search() -> Result<()> {
+        use tempfile::tempdir;
+        use std::fs::File;
+        use std::io::Write;
+        use crate::infrastructure::vector_db::DocumentToUpsert;
+        use crate::domain::reference::{SearchQuery, SearchResult};
+
+        // 1. テンポラリディレクトリとprebuilt_index.jsonl作成
+        let dir = tempdir()?;
+        let index_path = dir.path().join("prebuilt_index.jsonl");
+        let mut file = File::create(&index_path)?;
+
+        // 2. ダミーDocumentToUpsertを1件書き込む
+        let doc = DocumentToUpsert {
+            file_path: "dummy.md".to_string(),
+            vector: vec![0.1, 0.2, 0.3],
+            source: Some("test-source".to_string()),
+            content_chunk: "テスト用の内容".to_string(),
+            metadata: None,
+        };
+        let json = serde_json::to_string(&doc)?;
+        writeln!(file, "{}", json)?;
+
+        // 3. モックVectorRepositoryを用意
+        let mock_vector_db = Arc::new(MockVectorRepository::new());
+        let embedder = Arc::new(EmbeddingGenerator::new(EmbeddingModel::AllMiniLML6V2)?);
+        let service = ReferenceServiceImpl::new(embedder.clone(), mock_vector_db.clone());
+
+        // 4. prebuilt_index.jsonlをロードし、upsert_documentsを呼ぶ
+        let loaded_docs = crate::infrastructure::file_system::load_prebuilt_index(index_path.clone())?;
+        assert_eq!(loaded_docs.len(), 1);
+        mock_vector_db.upsert_documents(&loaded_docs).await?;
+
+        // 5. upsertされた内容を確認
+        let upserted = mock_vector_db.get_upserted_docs();
+        assert_eq!(upserted.len(), 1);
+        assert_eq!(upserted[0].file_path, "dummy.md");
+        assert_eq!(upserted[0].content_chunk, "テスト用の内容");
+
+        // 6. 検索時の返却値をセットし、search_documentsでヒットすることを確認
+        let expected_result = SearchResult {
+            file_path: "dummy.md".to_string(),
+            score: 0.99,
+            source: Some("test-source".to_string()),
+            content_chunk: "テスト用の内容".to_string(),
+            metadata: None,
+        };
+        mock_vector_db.set_search_results(vec![expected_result.clone()]);
+
+        let query = SearchQuery { text: "テスト".to_string(), limit: Some(1) };
+        let results = service.search_documents(query, None).await?;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], expected_result);
+        Ok(())
+    }
 }

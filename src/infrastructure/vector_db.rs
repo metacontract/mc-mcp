@@ -13,6 +13,7 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 // Import serde::Deserialize for DocumentToUpsert
 use serde::Deserialize;
+use serde::Serialize;
 // Removed unused serial_test import here
 
 // Required imports for shared container logic
@@ -44,7 +45,7 @@ pub use self::payload::DocumentPayload;
 
 // --- Document to Upsert --- (Keep this definition)
 // Structure passed to upsert_documents. Contains data needed to create PointStruct.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DocumentToUpsert {
     pub file_path: String,
     pub vector: Vec<f32>,

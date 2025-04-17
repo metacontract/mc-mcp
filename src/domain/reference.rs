@@ -23,7 +23,7 @@ pub struct DocumentFragment {
 }
 
 // Represents a search result, linking back to a file path
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SearchResult {
     pub file_path: String, // Path to the source document
     pub score: f32,        // Similarity score
