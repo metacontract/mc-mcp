@@ -107,6 +107,36 @@ See [RooCode's documentation](https://github.com/RooVetGit/Roo-Code) for details
 - Use your MCP-compatible Agent/IDE to interact with mc-mcp
 - Design, search docs, and run TDD cycles (`forge_test`, `search_docs`, etc.)
 
+### Configuration Example
+
+Create a file named `mcp_config.toml` in your project root:
+
+```toml
+[reference]
+prebuilt_index_path = "artifacts/prebuilt_index.jsonl.gz"
+
+[[reference.sources]]
+name = "mc-docs"
+source_type = "local"
+path = "metacontract/mc/site/docs"
+
+[[reference.sources]]
+name = "solidity-docs"
+source_type = "local"
+path = "docs/solidity"
+
+[[reference.sources]]
+name = "user-docs"
+source_type = "local"
+path = "docs/user"
+```
+
+- `prebuilt_index_path` ... (optional) Path to a prebuilt index (jsonl or gzipped jsonl). If set, it will be loaded and upserted into Qdrant on startup.
+- Each `[[reference.sources]]` must have `name`, `source_type` (usually `local`), and `path` (relative to the execution directory).
+- All paths must exist and be directories, or indexing will fail.
+
+See also: [config.rs](src/config.rs) for the full config structure.
+
 ---
 
 ## Project Structure
