@@ -14,3 +14,7 @@
 
 # VS Code settings
 .vscode/
+
+artifacts/
+*.jsonl
+*.jsonl.gz

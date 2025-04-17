@@ -7,6 +7,7 @@ use serde_json;
 use log::{debug, error, warn};
 use anyhow::Result;
 use std::io::{BufRead, BufReader};
+use flate2::read::GzDecoder;
 
 // Import DocumentToUpsert from the correct module
 use crate::infrastructure::vector_db::DocumentToUpsert;
@@ -77,7 +78,11 @@ pub fn load_prebuilt_index(path: PathBuf) -> Result<Vec<DocumentToUpsert>> {
 
     let file = File::open(&path)
         .map_err(|e| anyhow::anyhow!("Failed to open prebuilt index file {:?}: {}", path, e))?;
-    let reader = BufReader::new(file);
+    let reader: Box<dyn BufRead> = if path.extension().map_or(false, |ext| ext == "gz") {
+        Box::new(BufReader::new(GzDecoder::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
 
     let mut documents = Vec::new();
     let mut line_number = 0;

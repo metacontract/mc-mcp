@@ -10,7 +10,7 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout mc-mcp
         uses: actions/checkout@v3
 
       - name: Set up Rust
@@ -32,3 +32,33 @@ jobs:
 
       - name: Run tests
         run: cargo test --all --release
+
+  build-prebuilt-index:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout mc-mcp
+        uses: actions/checkout@v3
+
+      - name: Checkout metacontract-docs
+        uses: actions/checkout@v3
+        with:
+          repository: metacontract/mc
+          path: mc/site/docs
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build prebuilt index
+        run: cargo run --bin build_index -- mc/site/docs artifacts/prebuilt_index.jsonl
+
+      - name: Compress index
+        run: gzip -9 -f artifacts/prebuilt_index.jsonl
+
+      - name: Upload prebuilt index artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt_index.jsonl.gz
+          path: artifacts/prebuilt_index.jsonl.gz
