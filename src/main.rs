@@ -21,6 +21,7 @@ use rmcp::model::ClientInfo;
 
 // Declare modules
 mod domain;
+mod config;
 mod application;
 mod infrastructure;
 
@@ -33,6 +34,7 @@ use crate::infrastructure::vector_db::{VectorDb, qdrant_client};
 use crate::domain::reference::SearchQuery;
 // Assuming VectorRepository trait will be created in domain
 use crate::domain::vector_repository::VectorRepository;
+use crate::config::{self, McpConfig}; // Add config module
 
 
 #[tokio::main]
@@ -40,11 +42,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: Initialize logging (e.g., tracing_subscriber)
     println!("mc-mcp server (MCP over stdio) started.");
 
-    // Document loading (using moved function)
-    let document_index = initialize_document_index(std::path::Path::new("metacontract/mc/site/docs"));
+    // --- Load Configuration ---
+    let config = config::load_config().map_err(|e| {
+        eprintln!("Failed to load configuration: {}", e);
+        // Provide a more specific error type if needed
+        Box::new(e) as Box<dyn std::error::Error>
+    })?;
+    println!("Configuration loaded: {:?}", config);
 
     // --- Dependency Injection Setup ---
-    // TODO: Read configuration from file/env (e.g., using figment)
+    // Use values from config where applicable, keep env var overrides for now
     let qdrant_url = std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6334".to_string());
     let qdrant_client = qdrant_client::Qdrant::from_url(&qdrant_url).build()?;
     let collection_name = std::env::var("QDRANT_COLLECTION").unwrap_or_else(|_| "mc_docs".to_string());
@@ -52,14 +59,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let embedding_model = EmbeddingModel::AllMiniLML6V2;
 
     let embedder = Arc::new(EmbeddingGenerator::new(embedding_model)?);
-    let vector_db_instance = VectorDb::new(Box::new(qdrant_client), collection_name, vector_dim)?;
-    vector_db_instance.initialize_collection().await?; // Initialize Qdrant collection
-    let vector_db: Arc<dyn VectorRepository> = Arc::new(vector_db_instance); // Use trait object for dependency injection
+    let vector_db_instance = VectorDb::new(Box::new(qdrant_client), collection_name.clone(), vector_dim)?;
 
-    let reference_service: Arc<dyn ReferenceService> = Arc::new(ReferenceServiceImpl::new(embedder, vector_db)); // Inject trait object
-    // -----------------------------------
+    // Initialize Qdrant collection (consider moving this logic)
+    vector_db_instance.initialize_collection().await.map_err(|e| {
+        eprintln!("Failed to initialize Qdrant collection '{}': {}", collection_name, e);
+        format!("Qdrant initialization failed: {}", e)
+    })?;
 
-    let handler = MyHandler { document_index, reference_service }; // Pass the service Arc
+    let vector_db: Arc<dyn VectorRepository> = Arc::new(vector_db_instance);
+    let reference_service: Arc<dyn ReferenceService> = Arc::new(ReferenceServiceImpl::new(embedder, vector_db.clone()));
+
+    // --- Initial Indexing (Replace SimpleDocumentIndex) ---
+    // TODO: Trigger indexing based on config.reference.sources
+    //       This likely belongs in a dedicated initialization step or service method.
+    //       The old SimpleDocumentIndex logic is removed/replaced.
+    // Example: Trigger indexing (this needs proper implementation)
+    println!("Triggering initial document indexing based on config...");
+    if let Err(e) = reference_service.index_sources(&config.reference.sources).await {
+        eprintln!("Error during initial indexing: {}", e);
+        // Decide if this should be a fatal error
+    }
+    println!("Initial indexing process started/completed.");
+
+    // Remove old document_index field and initialization
+    // let document_index = initialize_document_index(...);
+    // let handler = MyHandler { document_index, reference_service };
+    let handler = MyHandler { reference_service }; // Pass only the service Arc
 
     let transport = (stdin(), stdout());
 
@@ -74,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[derive(Clone)]
 struct MyHandler {
-    document_index: Arc<Mutex<SimpleDocumentIndex>>,
+    // document_index: Arc<Mutex<SimpleDocumentIndex>>, // Removed
     reference_service: Arc<dyn ReferenceService>, // Use trait object
 }
 
@@ -221,281 +247,163 @@ impl ServerHandler for MyHandler {
     }
 }
 
-/// Initializes the document index, preferring prebuilt_index.json if present.
-pub fn initialize_document_index(doc_dir: &std::path::Path) -> Arc<Mutex<SimpleDocumentIndex>> {
-    let prebuilt_path = doc_dir.join("prebuilt_index.json");
-    if prebuilt_path.exists() {
-        match load_prebuilt_index(prebuilt_path) {
-            Ok(index) => {
-                println!("Loaded prebuilt_index.json ({} entries)", index.len());
-                return Arc::new(Mutex::new(index));
-            }
-            Err(e) => {
-                eprintln!("Failed to load prebuilt_index.json: {}. Falling back to directory scan.", e);
-            }
-        }
-    }
-    match load_documents(Some(doc_dir.to_path_buf())) {
-        Ok(index) => {
-            println!("Loaded {} documents from directory scan.", index.len());
-            Arc::new(Mutex::new(index))
-        }
-        Err(e) => {
-            eprintln!("Failed to load documents: {}. Starting with empty index.", e);
-            Arc::new(Mutex::new(SimpleDocumentIndex::new()))
-        }
-    }
-}
-
-#[cfg(test)]
-mod doc_index_init_tests {
-    use super::*;
-    use std::fs::{self, File};
-    use std::io::Write;
-    use tempfile::tempdir;
-
-    #[test]
-    fn test_initialize_document_index_prefers_prebuilt() {
-        let dir = tempdir().unwrap();
-        let prebuilt_path = dir.path().join("prebuilt_index.json");
-        let dummy = serde_json::json!({
-            "file1.md": ["Dummy content 1", "mc-docs"]
-        });
-        let mut file = File::create(&prebuilt_path).unwrap();
-        write!(file, "{}", dummy.to_string()).unwrap();
-        drop(file);
-        // 物理的に.mdファイルも置いてみるが、prebuiltが優先される
-        let md_path = dir.path().join("file2.md");
-        let mut md_file = File::create(&md_path).unwrap();
-        writeln!(md_file, "# Should not be loaded").unwrap();
-        drop(md_file);
-        let index = initialize_document_index(dir.path());
-        let locked = index.lock().unwrap();
-        assert_eq!(locked.len(), 1);
-        assert!(locked.get("file1.md").is_some());
-        assert!(locked.get("file2.md").is_none());
-        dir.close().unwrap();
-    }
-
-    #[test]
-    fn test_initialize_document_index_fallback_to_scan() {
-        let dir = tempdir().unwrap();
-        // prebuilt_index.jsonは置かない
-        let md_path = dir.path().join("file2.md");
-        let mut md_file = File::create(&md_path).unwrap();
-        writeln!(md_file, "# Loaded by scan").unwrap();
-        drop(md_file);
-        let index = initialize_document_index(dir.path());
-        let locked = index.lock().unwrap();
-        assert_eq!(locked.len(), 1);
-        assert!(locked.get(&md_path.to_string_lossy().to_string()).is_some());
-        dir.close().unwrap();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
-    // Update use paths for tests
-    use crate::application::reference_service::ReferenceService;
-    use crate::domain::reference::{SearchResult, SearchQuery};
-    use crate::infrastructure::SimpleDocumentIndex; // Use path from infrastructure
+    use crate::application::reference_service::SearchResult;
+    use crate::domain::reference::SearchQuery;
     use anyhow::Result;
     use async_trait::async_trait;
-    use rmcp::model::{Content, CallToolRequestParam}; // Ensure rmcp types are used correctly
-    use rmcp::service::RequestContext; // Ensure rmcp types are used correctly
+    use std::path::PathBuf;
+    use crate::config::DocumentSource;
 
-    // Mock ReferenceService for testing MyHandler
-    #[derive(Clone)]
+    // Keep MockReferenceService but update its methods if needed
+    #[derive(Clone)] // Add Clone
     struct MockReferenceService;
 
     #[async_trait]
     impl ReferenceService for MockReferenceService {
-        async fn index_documents(&self, _docs_path: Option<std::path::PathBuf>) -> Result<()> {
+        async fn index_documents(&self, _docs_path: Option<PathBuf>) -> Result<()> {
+            println!("MockReferenceService: index_documents called (legacy)");
             Ok(())
         }
-
+        // Add the new index_sources method
+        async fn index_sources(&self, sources: &[DocumentSource]) -> Result<()> {
+            println!("MockReferenceService: index_sources called with {} sources", sources.len());
+            Ok(())
+        }
         async fn search_documents(&self, query: SearchQuery, _score_threshold: Option<f32>) -> Result<Vec<SearchResult>> {
-            println!("MockReferenceService: Searching for '{}', limit {:?}", query.text, query.limit);
-            if query.text == "test query" {
-                Ok(vec![
-                    SearchResult { file_path: "mock_path1.md".to_string(), score: 0.9, source: "mock-source".to_string() },
-                    SearchResult { file_path: "mock_path2.md".to_string(), score: 0.8, source: "mock-source".to_string() },
-                ])
+            println!("MockReferenceService: search_documents called with query: {:?}", query);
+            if query.text == "found" {
+                Ok(vec![SearchResult {
+                    file_path: "mock/path.md".to_string(),
+                    score: 0.9,
+                    content_chunk: "mock content".to_string(),
+                    metadata: None, // Add metadata later
+                    source: Some("mock_source".to_string()), // Add source later
+                }])
             } else {
                 Ok(vec![])
             }
         }
     }
 
-    #[tokio::test]
-    async fn test_forge_test_execution() {
-        // This test depends on the actual 'forge' command.
-        // It might fail if forge is not installed or the project setup changes.
-        let dummy_index = Arc::new(Mutex::new(SimpleDocumentIndex::new()));
-        let mock_service: Arc<dyn ReferenceService> = Arc::new(MockReferenceService);
-        let handler = MyHandler { document_index: dummy_index, reference_service: mock_service };
-
-        let result = handler.forge_test().await;
-
-        // We can't easily assert the exact output, but we check if it ran or failed predictably.
-        match result {
-            Ok(content_vec) => {
-                println!("forge_test succeeded (in test). Output:");
-                let output_text = content_vec.iter()
-                    .filter_map(|c| c.raw.as_text().map(|t| t.text.as_str()))
-                    .collect::<Vec<&str>>()
-                    .join("\n");
-                println!("{}", output_text);
-                // Assert that the output contains expected markers if possible
-                // assert!(output_text.contains("Test results"), "Output should contain test results");
-            }
-            Err(e) => {
-                 println!("forge_test failed (in test): {}", e);
-                 // Assert the error type or message if forge is expected to fail in the test env
-                 assert!(e.contains("Failed to execute forge command"), "Error message should indicate failure to execute forge command");
-            }
+    // Create a helper to setup MyHandler with MockReferenceService
+    fn setup_mock_handler() -> MyHandler {
+        MyHandler {
+            reference_service: Arc::new(MockReferenceService)
         }
     }
 
+    #[tokio::test]
+    async fn test_forge_test_execution() {
+        // This test might fail if forge is not installed or project not set up
+        // Consider mocking the Command execution or running this as an integration test
+        // For now, assume it works or skip if forge isn't available
+        if Command::new("forge").arg("--version").output().await.is_err() {
+            println!("Skipping test_forge_test_execution: 'forge' command not found.");
+            return;
+        }
+        let handler = setup_mock_handler(); // Use mock handler
+        let result = handler.forge_test().await;
+        // Basic check: Ensure it doesn't return the specific error message for command execution failure
+        // A more robust test would mock the Command itself.
+        assert!(!result.unwrap_err().starts_with("Failed to execute forge command"), "Forge command execution likely failed");
+        // Or assert!(result.is_ok(), "forge test command failed"); // If expecting success
+    }
 
     #[tokio::test]
     async fn test_call_tool_search_docs_semantic() {
-        let dummy_index = Arc::new(Mutex::new(SimpleDocumentIndex::new()));
-        let mock_service: Arc<dyn ReferenceService> = Arc::new(MockReferenceService);
-        let handler = MyHandler { document_index: dummy_index, reference_service: mock_service };
-
+        let handler = setup_mock_handler();
         let params = CallToolRequestParam {
-            name: "search_docs".to_string().into(),
-            arguments: Some(serde_json::json!({ "query": "test query" }).as_object().unwrap().clone()),
+            method: CallToolRequestMethod {},
+            name: "search_docs".into(),
+            arguments: Some(serde_json::json!({ "query": "found" }).as_object().unwrap().clone()),
+            client_info: None, // Added None
+            peer: None, // Added None
         };
-
-        let (peer, _) = Peer::<RoleServer>::new(
-            std::sync::Arc::new(rmcp::service::AtomicU32RequestIdProvider::default()),
-            rmcp::model::InitializeRequestParam::default(),
-        );
-        let result = handler.call_tool(params, RequestContext::<RoleServer> {
-            ct: tokio_util::sync::CancellationToken::new(),
-            id: rmcp::model::NumberOrString::String("test".to_string().into()),
-            peer,
-        }).await;
-
-        assert!(result.is_ok());
-        let call_result = result.unwrap();
-        assert_eq!(call_result.is_error, Some(false), "Expected success status");
-        assert_eq!(call_result.content.len(), 2);
-        assert!(call_result.content[0].raw.as_text().unwrap().text.contains("mock_path1.md"));
-        assert!(call_result.content[1].raw.as_text().unwrap().text.contains("mock_path2.md"));
+        let result = handler.call_tool(params, RequestContext::new_for_test(AtomicU32RequestIdProvider::new(), ClientInfo::default())).await.unwrap(); // Use test context
+        assert!(result.is_success());
+        let content = result.success_content().unwrap();
+        assert_eq!(content.len(), 1);
+        assert!(content[0].text().unwrap().contains("mock/path.md"));
     }
 
     #[tokio::test]
     async fn test_call_tool_search_docs_no_results() {
-        let dummy_index = Arc::new(Mutex::new(SimpleDocumentIndex::new()));
-        let mock_service: Arc<dyn ReferenceService> = Arc::new(MockReferenceService);
-        let handler = MyHandler { document_index: dummy_index, reference_service: mock_service };
+         let handler = setup_mock_handler();
+         let params = CallToolRequestParam {
+             method: CallToolRequestMethod {},
+             name: "search_docs".into(),
+             arguments: Some(serde_json::json!({ "query": "notfound" }).as_object().unwrap().clone()),
+             client_info: None,
+             peer: None,
+         };
+         let result = handler.call_tool(params, RequestContext::new_for_test(AtomicU32RequestIdProvider::new(), ClientInfo::default())).await.unwrap();
+         assert!(result.is_success()); // Search itself succeeds, just returns no results
+         let content = result.success_content().unwrap();
+         assert!(content[0].text().unwrap().contains("No documents found"));
+     }
 
-        let params = CallToolRequestParam {
-            name: "search_docs".to_string().into(),
-            arguments: Some(serde_json::json!({ "query": "unknown query" }).as_object().unwrap().clone()),
-        };
-
-        let (peer, _) = Peer::<RoleServer>::new(
-            std::sync::Arc::new(rmcp::service::AtomicU32RequestIdProvider::default()),
-            rmcp::model::InitializeRequestParam::default(),
-        );
-        let result = handler.call_tool(params, RequestContext::<RoleServer> {
-            ct: tokio_util::sync::CancellationToken::new(),
-            id: rmcp::model::NumberOrString::String("test".to_string().into()),
-            peer,
-        }).await;
-
-        assert!(result.is_ok());
-        let call_result = result.unwrap();
-        assert_eq!(call_result.is_error, Some(false), "Expected success status");
-        assert_eq!(call_result.content.len(), 1);
-        assert!(call_result.content[0].raw.as_text().unwrap().text.contains("No documents found"));
-    }
-
-     #[tokio::test]
+    #[tokio::test]
     async fn test_call_tool_search_docs_missing_query() {
-        let dummy_index = Arc::new(Mutex::new(SimpleDocumentIndex::new()));
-        let mock_service: Arc<dyn ReferenceService> = Arc::new(MockReferenceService);
-        let handler = MyHandler { document_index: dummy_index, reference_service: mock_service };
-
+        let handler = setup_mock_handler();
         let params = CallToolRequestParam {
-            name: "search_docs".to_string().into(),
-            arguments: Some(serde_json::json!({}).as_object().unwrap().clone()), // Empty args
+            method: CallToolRequestMethod {},
+            name: "search_docs".into(),
+            arguments: Some(serde_json::Map::new()), // Empty arguments
+            client_info: None,
+            peer: None,
         };
-
-        let (peer, _) = Peer::<RoleServer>::new(
-            std::sync::Arc::new(rmcp::service::AtomicU32RequestIdProvider::default()),
-            rmcp::model::InitializeRequestParam::default(),
-        );
-        let result = handler.call_tool(params, RequestContext::<RoleServer> {
-            ct: tokio_util::sync::CancellationToken::new(),
-            id: rmcp::model::NumberOrString::String("test".to_string().into()),
-            peer,
-        }).await;
-
-        assert!(result.is_ok());
-        let call_result = result.unwrap();
-        assert_eq!(call_result.is_error, Some(true), "Expected error status");
-        assert!(call_result.content[0].raw.as_text().unwrap().text.contains("Missing 'query' parameter"));
+        let result = handler.call_tool(params, RequestContext::new_for_test(AtomicU32RequestIdProvider::new(), ClientInfo::default())).await.unwrap();
+        assert!(result.is_error());
+        assert!(result.error_content().unwrap()[0].text().unwrap().contains("Missing 'query' parameter"));
     }
 
      #[tokio::test]
-    async fn test_call_tool_search_docs_invalid_query() {
-        let dummy_index = Arc::new(Mutex::new(SimpleDocumentIndex::new()));
-        let mock_service: Arc<dyn ReferenceService> = Arc::new(MockReferenceService);
-        let handler = MyHandler { document_index: dummy_index, reference_service: mock_service };
+     async fn test_call_tool_search_docs_invalid_query() {
+         let handler = setup_mock_handler();
+         let params = CallToolRequestParam {
+             method: CallToolRequestMethod {},
+             name: "search_docs".into(),
+             arguments: Some(serde_json::json!({ "query": 123 }).as_object().unwrap().clone()), // Non-string query
+             client_info: None,
+             peer: None,
+         };
+         let result = handler.call_tool(params, RequestContext::new_for_test(AtomicU32RequestIdProvider::new(), ClientInfo::default())).await.unwrap();
+         assert!(result.is_error());
+         assert!(result.error_content().unwrap()[0].text().unwrap().contains("Invalid 'query' parameter"));
+     }
 
-        let params = CallToolRequestParam {
-            name: "search_docs".to_string().into(),
-            arguments: Some(serde_json::json!({ "query": 123 }).as_object().unwrap().clone()), // Query is not a string
-        };
-
-        let (peer, _) = Peer::<RoleServer>::new(
-            std::sync::Arc::new(rmcp::service::AtomicU32RequestIdProvider::default()),
-            rmcp::model::InitializeRequestParam::default(),
-        );
-        let result = handler.call_tool(params, RequestContext::<RoleServer> {
-            ct: tokio_util::sync::CancellationToken::new(),
-            id: rmcp::model::NumberOrString::String("test".to_string().into()),
-            peer,
-        }).await;
-
-        assert!(result.is_ok());
-        let call_result = result.unwrap();
-        assert_eq!(call_result.is_error, Some(true), "Expected error status");
-        assert!(call_result.content[0].raw.as_text().unwrap().text.contains("Invalid 'query' parameter"));
-    }
-
-     #[tokio::test]
+    #[tokio::test]
     async fn test_call_tool_unknown_tool() {
-        let dummy_index = Arc::new(Mutex::new(SimpleDocumentIndex::new()));
-        let mock_service: Arc<dyn ReferenceService> = Arc::new(MockReferenceService);
-        let handler = MyHandler { document_index: dummy_index, reference_service: mock_service };
-
+        let handler = setup_mock_handler();
         let params = CallToolRequestParam {
-            name: "unknown_tool".to_string().into(),
+            method: CallToolRequestMethod {},
+            name: "unknown_tool".into(),
             arguments: None,
+            client_info: None,
+            peer: None,
         };
-
-        let (peer, _) = Peer::<RoleServer>::new(
-            std::sync::Arc::new(rmcp::service::AtomicU32RequestIdProvider::default()),
-            rmcp::model::InitializeRequestParam::default(),
-        );
-        let result = handler.call_tool(params, RequestContext::<RoleServer> {
-            ct: tokio_util::sync::CancellationToken::new(),
-            id: rmcp::model::NumberOrString::String("test".to_string().into()),
-            peer,
-        }).await;
-
+        let result = handler.call_tool(params, RequestContext::new_for_test(AtomicU32RequestIdProvider::new(), ClientInfo::default())).await;
         assert!(result.is_err());
-        let err = result.err().unwrap();
-        // MethodNotFoundはDisplay文字列で判定する
-        let err_str = format!("{}", err);
-        assert!(err_str.contains("-32601"), "Expected JSON-RPC MethodNotFound error (-32601), got: {}", err_str);
+        assert!(matches!(result.unwrap_err(), McpError::MethodNotFound { .. }));
     }
+
+    // Add tests for MyHandler::search_docs_semantic directly if needed
+    // #[tokio::test]
+    // async fn test_myhandler_search_semantic_found() {
+    //     let handler = setup_mock_handler();
+    //     let results = handler.search_docs_semantic("found", 5).await;
+    //     assert_eq!(results.len(), 1);
+    //     assert!(results[0].text().unwrap().contains("mock/path.md"));
+    // }
+    //
+    // #[tokio::test]
+    // async fn test_myhandler_search_semantic_not_found() {
+    //     let handler = setup_mock_handler();
+    //     let results = handler.search_docs_semantic("notfound", 5).await;
+    //     assert_eq!(results.len(), 1);
+    //     assert!(results[0].text().unwrap().contains("No documents found"));
+    // }
 }

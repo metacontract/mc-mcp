@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use walkdir::WalkDir;
 use super::markdown::parse_markdown_to_text; // Assuming markdown.rs exists
 use serde_json;
+use anyhow::{Context, Result};
+use log::{debug, error, warn};
 
 // Define module first
 mod document_index {
@@ -98,6 +100,62 @@ pub fn load_documents_from_multiple_sources(sources: &[(PathBuf, String)]) -> Re
         }
     }
     Ok(index)
+}
+
+/// Loads Markdown documents from a single specified directory.
+///
+/// Recursively searches for `.md` files in the given directory, reads them,
+/// and returns a map of file paths to their raw content.
+///
+/// # Arguments
+///
+/// * `dir_path` - The PathBuf specifying the directory to load documents from.
+///
+/// # Returns
+///
+/// A Result containing a HashMap where keys are file paths (String) and
+/// values are the raw file content (String). Returns an error if the path is not a directory
+/// or if there are issues reading files (individual file read errors are logged).
+pub fn load_documents_from_source(dir_path: &PathBuf) -> Result<HashMap<String, String>> {
+    debug!("Loading documents from single source: {:?}", dir_path);
+
+    if !dir_path.is_dir() {
+        return Err(anyhow::anyhow!("Specified path is not a directory: {:?}", dir_path));
+    }
+
+    let mut documents = HashMap::new();
+    let mut read_errors = 0;
+
+    for entry in WalkDir::new(dir_path)
+        .into_iter()
+        .filter_map(|e| e.ok()) // Ignore directory traversal errors
+        .filter(|e| e.path().is_file() && e.path().extension().map_or(false, |ext| ext == "md"))
+    {
+        let path = entry.path();
+        let path_str = path.to_string_lossy().to_string();
+
+        match fs::read_to_string(path) {
+            Ok(content) => {
+                debug!("Successfully read: {}", path_str);
+                // We return raw content here. Parsing/chunking happens later.
+                documents.insert(path_str, content);
+            }
+            Err(e) => {
+                error!("Failed to read file {}: {}", path_str, e);
+                read_errors += 1;
+            }
+        }
+    }
+
+    if documents.is_empty() && read_errors == 0 {
+        warn!("No markdown files found in {:?}", dir_path);
+    } else if read_errors > 0 {
+        warn!("Encountered {} errors while reading files from {:?}", read_errors, dir_path);
+        // Decide if partial success is ok, or return an error?
+        // For now, return successfully loaded documents, but log errors.
+    }
+
+    Ok(documents)
 }
 
 #[cfg(test)]
@@ -237,5 +295,44 @@ mod tests {
         main_dir.close().unwrap();
         add1.close().unwrap();
         add2.close().unwrap();
+    }
+
+    #[test]
+    fn test_load_documents_from_source_success() {
+        let dir = tempdir().unwrap();
+        let source_path = dir.path().to_path_buf();
+
+        fs::create_dir(source_path.join("subdir")).unwrap();
+        let mut file1 = File::create(source_path.join("file1.md")).unwrap();
+        writeln!(file1, "# Content 1").unwrap();
+        let mut file2 = File::create(source_path.join("subdir/file2.md")).unwrap();
+        writeln!(file2, "Content 2").unwrap();
+        let mut file3 = File::create(source_path.join("other.txt")).unwrap();
+        writeln!(file3, "Ignore").unwrap();
+
+        let documents = load_documents_from_source(&source_path).unwrap();
+
+        assert_eq!(documents.len(), 2);
+        assert_eq!(documents.get(&source_path.join("file1.md").to_string_lossy().to_string()), Some(&"# Content 1\n".to_string()));
+        assert_eq!(documents.get(&source_path.join("subdir/file2.md").to_string_lossy().to_string()), Some(&"Content 2\n".to_string()));
+        assert!(!documents.contains_key(&source_path.join("other.txt").to_string_lossy().to_string()));
+    }
+
+    #[test]
+    fn test_load_documents_from_source_empty() {
+        let dir = tempdir().unwrap();
+        let source_path = dir.path().to_path_buf();
+        let documents = load_documents_from_source(&source_path).unwrap();
+        assert!(documents.is_empty());
+    }
+
+    #[test]
+    fn test_load_documents_from_source_not_a_directory() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("a_file.txt");
+        File::create(&file_path).unwrap();
+        let result = load_documents_from_source(&file_path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not a directory"));
     }
 }

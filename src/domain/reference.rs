@@ -21,6 +21,8 @@ pub struct DocumentFragment {
 pub struct SearchResult {
     pub file_path: String, // Path to the source document
     pub score: f32,        // Similarity score
-    pub source: String,    // 追加: ドキュメントソース
-    // pub fragment: Option<DocumentFragment>, // Optional relevant fragment
+    pub source: Option<String>, // Source identifier (e.g., "mc-docs", "local-project") - Made optional
+    pub content_chunk: String, // The actual text chunk that matched
+    pub metadata: Option<serde_json::Value>, // Optional metadata associated with the chunk
+    // pub fragment: Option<DocumentFragment>, // Removed/Replaced by content_chunk and metadata
 }

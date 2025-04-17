@@ -47,20 +47,24 @@
     *   **Security:** Validate inputs rigorously. Require explicit user confirmation via the MCP client for any command execution.
 *   **`reference` Function:**
     *   **Data Sources:**
-        *   **Primary:** `metacontract/mc/docs` directory. Index for this source will be pre-built via CI/CD and distributed (e.g., bundled with release or downloaded on first run).
-        *   **Additional:** User-configurable sources (e.g., local directories, other Git repositories containing Markdown documentation like Solidity docs). Specified via configuration file.
+        *   **Primary:** `metacontract/mc/docs` directory (or configured path). Index for this source might be pre-built via CI/CD (TODO).
+        *   **Additional:** User-configurable sources (local directories supported, Git/HTTP TODO). Specified via `mcp_config.toml`.
     *   **Parsing:** Use `pulldown-cmark` or `comrak` to parse Markdown from all sources.
     *   **Indexing (Vector Search):**
-        1.  **Pre-built Index (`mc` docs):** Load the distributed index data into the local Vector DB (Qdrant).
-        2.  **Additional Sources:** On first run or via a dedicated command, fetch/read documents from configured sources.
-        3.  Chunk documents meaningfully. Add metadata indicating the document source (e.g., `source: "mc-docs"`, `source: "solidity-docs"`).
-        4.  Generate text embeddings locally using `fastembed-rs` or similar Rust library with a model like `all-MiniLM-L6-v2`.
-        5.  Store/update chunks and embeddings in the local Vector DB (Qdrant), likely within a single collection differentiated by metadata.
-        6.  **Search:** On query, generate query embedding, perform similarity search in the Vector DB. Optionally filter by source metadata.
-        7.  Return relevant chunks via MCP `Tool` response, potentially indicating the source.
-    *   **MCP Implementation:** Expose search functionality as an MCP `Tool` accepting natural language queries.
-    *   **Status:** Semantic search pipeline implemented and tests stabilized
-    *   **Next:** Implement pre-built index loading, support for additional sources, and metadata integration
+        1.  **Pre-built Index (`mc` docs):** (TODO) Load the distributed index data into the local Vector DB (Qdrant).
+        2.  **Additional Sources:** On startup (or via command), load configuration (`mcp_config.toml`). Iterate through configured `[reference.sources]`. For each `local` source, read documents using `walkdir`, `fs::read_to_string`.
+        3.  Chunk documents meaningfully (currently simple paragraph split in `ReferenceServiceImpl::chunk_document`). Add metadata including `source` identifier, `file_path`, and the `content_chunk` itself to the Qdrant payload.
+        4.  Generate text embeddings locally using `fastembed-rs` (`EmbeddingGenerator`).
+        5.  Store/update chunks, embeddings, and payload (source, file_path, content_chunk, metadata) in the local Vector DB (Qdrant) via `VectorRepository::upsert_documents`.
+        6.  **Search:** On query, generate query embedding, perform similarity search in the Vector DB via `VectorRepository::search`. Optionally filter by source metadata (TODO).
+        7.  Return relevant results (`Vec<SearchResult>`) including file path, score, source identifier, content chunk, and metadata via MCP `Tool` response.
+    *   **MCP Implementation:** Expose search functionality as an MCP `Tool` accepting natural language queries. **(Needs update to return richer `SearchResult` data)**.
+    *   **Status:**
+        *   Semantic search pipeline implemented and tests stabilized.
+        *   **Configuration loading (`figment`, `mcp_config.toml`) for sources implemented.**
+        *   **Indexing logic updated to handle multiple configured local sources.**
+        *   **Vector DB interaction updated to store and retrieve source, content_chunk, and metadata in payload.**
+    *   **Next:** Implement pre-built index loading. Update MCP Tool response. Support Git/HTTP sources. Add search filtering.
 
 ## 5. Supporting Infrastructure
 
@@ -92,12 +96,12 @@
     *   Setup local Vector DB (Qdrant - `qdrant-client` and `VectorDb` struct implemented).
     *   Implement embedding generation pipeline for parsed docs (Completed - Pipeline logic exists).
     *   Implement similarity search logic (Completed - Integrated `VectorDb::search` in Application layer).
-    *   **Implement logic to load pre-built `mc` docs index.** (TODO)
-    *   **Implement configuration handling and indexing logic for additional user-defined document sources.** (TODO)
-    *   **Update VectorDB interaction to handle source metadata.** (TODO)
-    *   Update MCP `Tool` for semantic search, potentially including source info in results. (TODO)
-    *   Add integration tests for the full ReferenceService pipeline (embedding generation and search). (Completed - All tests pass with Qdrant startup, TempDir lifecycle, and score_threshold handling fixed)
-    *   **Goal:** Semantic search over `mc` docs *and* user-added docs via natural language query. (**Integration tests passing for core search, TDD cycle stabilized**)
+    *   **Implement configuration handling (`figment`) and indexing logic for additional user-defined local document sources.** (Completed)
+    *   **Update VectorDB interaction to handle source metadata, content chunks in payload.** (Completed)
+    *   **(TODO)** Implement logic to load pre-built `mc` docs index.
+    *   **(TODO)** Update MCP `Tool` for semantic search to return richer `SearchResult` info (source, chunk, metadata).
+    *   Add integration tests for the full ReferenceService pipeline (Completed - Core tests passing).
+    *   **Goal:** Semantic search over `mc` docs *and* user-added local docs via natural language query.
 *   **Phase 4: `tool` Expansion & Polish**
     *   Implement remaining `tool` functions (setup, deploy, upgrade).
     *   Improve error handling and user feedback via MCP.
@@ -110,18 +114,24 @@
 1.  Confirm final acceptance of Rust and internal Vector DB approach. (Completed)
 2.  Set up the initial Cargo workspace structure. (Completed)
 3.  Implement Phase 1. (Completed)
-4.  Implement Phase 2. (Completed)
+4.  Implement Phase 4. (Completed)
 5.  Implement Phase 3:
     *   `VectorDb` and `EmbeddingGenerator` implemented and tested. (Completed)
     *   Application layer integration completed. (Completed)
-    *   Resolve compilation errors and complete integration tests for the ReferenceService pipeline. (**Blocked** - See Phase 3 notes.) -> (Integration tests passing, TDD cycle stabilized)
-    *   Implement pre-built index loading and additional source indexing. (TODO)
-    *   Update the MCP `Tool` to utilize the enhanced semantic search functionality. (TODO)
+    *   Integration tests for the ReferenceService pipeline passing. (Completed)
+    *   **Configuration loading and indexing for multiple local sources implemented.** (Completed)
+    *   **Vector DB payload updated for source, chunk, metadata.** (Completed)
+    *   **(TODO)** Implement pre-built index loading.
+    *   **(TODO)** Update the MCP `Tool` (`search_docs` in `main.rs`) to utilize the enhanced semantic search functionality and return richer results.
 6.  Establish CI/CD pipeline (including pre-building `mc` docs index). (TODO)
 7.  Monitor MCP specification and `metacontract` evolution for necessary adaptations. (Ongoing)
-8.  [Completed] Fix test code after single-crate migration (make `cargo test` pass).
+8.  [Completed] Fix test code after single-crate migration.
 9.  [Completed] Prebuilt mc-docs index loading (TDD cycle).
-10. [In progress] Next: Additional document source config/indexing, metadata integration (TDD).
+10. **[Completed]** Additional document source config/indexing (local paths), metadata integration (source, chunk).
+11. **[Next]** Update MCP `search_docs` tool in `main.rs` to return richer results.
+12. **[Next]** Implement pre-built index loading.
+13. **[Next]** Implement search filtering by source.
+14. **[Future]** Support Git/HTTP sources.
 
 ## 8. Recommended TDD Practices
 
@@ -140,3 +150,10 @@
 - If the test run is interrupted (e.g., by Ctrl+C) or if there are any failed tests, Cursor must **not** claim that all tests passed.
 - If there is any ambiguity (e.g., partial output, missing summary, or signs of cancellation), Cursor should report the situation and ask the user for clarification, rather than assuming success.
 - This is especially important for long-running or integration tests (e.g., Qdrant, Docker-based tests) where partial output may be misleading.
+
+## Milestones for Reference Source Types
+
+- [Completed] Support for relative paths to local files/directories in the repository.
+- [Next] Support for pre-built index loading (likely from a specific configured path).
+- [Milestone 1] Support for Markdown files published on GitHub.
+- [Milestone 2] Support for arbitrary URL content.

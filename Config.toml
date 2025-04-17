@@ -1,0 +1,12 @@
+[sources]
+[[sources]]
+path = "metacontract/mc/site/docs"
+source = "mc-docs"
+
+[[sources]]
+path = "docs/solidity"
+source = "solidity-docs"
+
+[[sources]]
+path = "docs/user"
+source = "user-docs"
