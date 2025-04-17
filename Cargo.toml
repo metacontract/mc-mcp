@@ -55,3 +55,6 @@ tonic = "0.12"
 
 [build-dependencies]
 # Add build dependencies if needed
+
+[alias]
+build-index = "run --bin build_index --"
