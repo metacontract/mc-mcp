@@ -1,15 +1,16 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use figment::{Figment, providers::{Format, Toml, Env, Serialized}};
 use std::path::PathBuf;
+use anyhow::Result;
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum SourceType {
     #[serde(rename = "local")]
     Local,
     // TODO: Add Git, Http later
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DocumentSource {
     pub name: String, // Identifier for the source (e.g., "mc-docs", "my-project-docs")
     pub source_type: SourceType,
@@ -18,7 +19,7 @@ pub struct DocumentSource {
     // pub branch: Option<String>, // For Git type
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReferenceConfig {
     // Default source is always mc-docs, maybe handled separately or require explicit definition?
     // Let's require explicit definition for now for clarity.
@@ -33,7 +34,7 @@ fn default_prebuilt_index_path() -> Option<PathBuf> {
     None
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct McpConfig {
     #[serde(default)]
     pub reference: ReferenceConfig,
@@ -52,27 +53,37 @@ impl Default for ReferenceConfig {
 
 
 // Example function to load config (will be used in main.rs)
-pub fn load_config() -> Result<McpConfig, figment::Error> {
-    Figment::new()
-        // Default values for McpConfig structure fields
-        .merge(Serialized::defaults(McpConfig {
-            reference: ReferenceConfig::default(),
-        }))
-        // Load from `mcp_config.toml` in the current directory
-        .merge(Toml::file("mcp_config.toml").nested())
-        // Load `MCP_` prefixed environment variables
-        .merge(Env::prefixed("MCP_").ignore_underscores(true))
-        .extract()
+pub fn load_config() -> Result<McpConfig> {
+    let figment = Figment::new()
+        // Start with default values
+        .merge(Serialized::defaults(McpConfig::default()))
+        // Merge TOML file if it exists (REMOVE .nested())
+        .merge(Toml::file("mcp_config.toml"))
+        // Merge environment variables prefixed with MCP_
+        // Use double underscores for nesting (e.g., MCP_REFERENCE__SOURCES__0__NAME="...")
+        .merge(Env::prefixed("MCP_").split("__"));
+
+    let config: McpConfig = figment.extract()?;
+    validate_config(&config)?;
+    Ok(config)
+}
+
+// Placeholder validation function
+fn validate_config(_config: &McpConfig) -> Result<()> {
+    // TODO: Add actual validation logic (e.g., check paths exist if SourceType::Local)
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(test)]
     use figment::Jail;
 
     #[test]
-    fn test_load_config_defaults() {
-        Jail::expect_with(|jail| {
+    fn test_load_config_default() {
+        // Test with no config file or env vars
+        Jail::expect_with(|_jail| {
             // No config file
             let config = load_config().expect("Failed to load default config");
             assert!(config.reference.sources.is_empty());
@@ -82,87 +93,107 @@ mod tests {
     }
 
     #[test]
-    fn test_load_config_from_file() {
+    fn test_load_config_toml_only() {
         Jail::expect_with(|jail| {
             jail.create_file(
                 "mcp_config.toml",
                 r#"
-                [reference]
-                prebuilt_index_path = "my_index.json"
-                sources = [
-                    { name = "mc", source_type = "local", path = "metacontract/mc/site/docs" },
-                    { name = "extra", source_type = "local", path = "./local_docs" },
-                ]
+[reference]
+prebuilt_index_path = "/path/to/index.idx"
+
+[[reference.sources]]
+name = "docs"
+source_type = "Local"
+path = "./docs_folder"
+
+[[reference.sources]]
+name = "notes"
+source_type = "Local"
+path = "../notes"
                 "#,
             )?;
-
-            let config = load_config().expect("Failed to load config from file");
-
+            let config = load_config().expect("Failed to load TOML config");
+            assert_eq!(config.reference.prebuilt_index_path, Some(PathBuf::from("/path/to/index.idx")));
             assert_eq!(config.reference.sources.len(), 2);
-            assert_eq!(config.reference.sources[0].name, "mc");
-            assert_eq!(config.reference.sources[0].path, PathBuf::from("metacontract/mc/site/docs"));
-            assert!(matches!(config.reference.sources[0].source_type, SourceType::Local));
-
-            assert_eq!(config.reference.sources[1].name, "extra");
-            assert_eq!(config.reference.sources[1].path, PathBuf::from("./local_docs"));
-            assert!(matches!(config.reference.sources[1].source_type, SourceType::Local));
-
-            assert_eq!(config.reference.prebuilt_index_path, Some(PathBuf::from("my_index.json")));
-
+            assert_eq!(config.reference.sources[0].name, "docs");
+            assert_eq!(config.reference.sources[0].source_type, SourceType::Local);
+            assert_eq!(config.reference.sources[0].path, PathBuf::from("./docs_folder"));
+             assert_eq!(config.reference.sources[1].name, "notes");
+             assert_eq!(config.reference.sources[1].path, PathBuf::from("../notes"));
             Ok(())
         });
     }
 
-     #[test]
-    fn test_load_config_env_override() {
+    #[test]
+    fn test_load_config_env_only() {
         Jail::expect_with(|jail| {
-            jail.create_file(
-                "mcp_config.toml",
-                r#"
-                [reference]
-                sources = [
-                    { name = "mc", source_type = "local", path = "original/path" },
-                ]
-                "#,
-            )?;
-            // Override sources via JSON string in env var
-             jail.set_env("MCP_REFERENCE_SOURCES", "[{ name = \"env_mc\", source_type = \"local\", path = \"env/path\" }]");
-             jail.set_env("MCP_REFERENCE_PREBUILT_INDEX_PATH", "env_index.json");
+            // Set environment variables using double underscore for nesting
+            jail.set_env("MCP_REFERENCE__PREBUILT_INDEX_PATH", "/env/index.idx");
+            jail.set_env("MCP_REFERENCE__SOURCES__0__NAME", "env_docs");
+            jail.set_env("MCP_REFERENCE__SOURCES__0__SOURCE_TYPE", "Local");
+            jail.set_env("MCP_REFERENCE__SOURCES__0__PATH", "/env/docs");
+            jail.set_env("MCP_REFERENCE__SOURCES__1__NAME", "env_notes");
+            jail.set_env("MCP_REFERENCE__SOURCES__1__SOURCE_TYPE", "Local"); // Keep as string
+            jail.set_env("MCP_REFERENCE__SOURCES__1__PATH", "/env/notes");
 
+            let config = load_config().expect("Failed to load env config");
 
-            let config = load_config().expect("Failed to load config with env override");
-
-            assert_eq!(config.reference.sources.len(), 1);
-            assert_eq!(config.reference.sources[0].name, "env_mc");
-            assert_eq!(config.reference.sources[0].path, PathBuf::from("env/path"));
-             assert_eq!(config.reference.prebuilt_index_path, Some(PathBuf::from("env_index.json")));
+            assert_eq!(config.reference.prebuilt_index_path, Some(PathBuf::from("/env/index.idx")));
+            assert_eq!(config.reference.sources.len(), 2);
+            assert_eq!(config.reference.sources[0].name, "env_docs");
+            assert_eq!(config.reference.sources[0].source_type, SourceType::Local);
+             assert_eq!(config.reference.sources[0].path, PathBuf::from("/env/docs"));
+             assert_eq!(config.reference.sources[1].name, "env_notes");
+              assert_eq!(config.reference.sources[1].source_type, SourceType::Local);
+             assert_eq!(config.reference.sources[1].path, PathBuf::from("/env/notes"));
 
             Ok(())
         });
     }
 
-     #[test]
-     fn test_load_config_partial_env_override() {
+    #[test]
+    fn test_load_config_toml_and_env_merge() {
          Jail::expect_with(|jail| {
              jail.create_file(
                  "mcp_config.toml",
                  r#"
-                 [reference]
-                 prebuilt_index_path = "file_index.json" # This should be kept
-                 sources = [
-                     { name = "mc", source_type = "local", path = "original/path" },
-                 ]
+[reference]
+# prebuilt_index_path is NOT set in TOML
+
+[[reference.sources]]
+name = "toml_docs" # Name differs from env
+source_type = "Local"
+path = "./toml_docs"
+
+# Only one source in TOML
                  "#,
              )?;
-             // Only override sources
-              jail.set_env("MCP_REFERENCE_SOURCES", "[{ name = \"env_mc\", source_type = \"local\", path = \"env/path\" }]");
 
+            // Env vars will override/add
+            jail.set_env("MCP_REFERENCE__PREBUILT_INDEX_PATH", "/env/merged.idx");
+            jail.set_env("MCP_REFERENCE__SOURCES__0__NAME", "env_docs"); // This should override toml_docs
+            // Env does not set source_type or path for index 0
+            jail.set_env("MCP_REFERENCE__SOURCES__1__NAME", "env_notes"); // This adds a second source
+            jail.set_env("MCP_REFERENCE__SOURCES__1__SOURCE_TYPE", "Local");
+            jail.set_env("MCP_REFERENCE__SOURCES__1__PATH", "/env/notes");
 
-             let config = load_config().expect("Failed to load config with partial env override");
+            let config = load_config().expect("Failed to load merged config");
 
-             assert_eq!(config.reference.sources.len(), 1);
-             assert_eq!(config.reference.sources[0].name, "env_mc");
-             assert_eq!(config.reference.prebuilt_index_path, Some(PathBuf::from("file_index.json"))); // Check it kept the file value
+            // PREBUILT_INDEX_PATH comes from env
+            assert_eq!(config.reference.prebuilt_index_path, Some(PathBuf::from("/env/merged.idx")));
+
+            // Sources array should have length 2 (merged from TOML and Env)
+            assert_eq!(config.reference.sources.len(), 2);
+
+            // Source 0: Name from env overrides TOML, type/path from TOML are kept
+            assert_eq!(config.reference.sources[0].name, "env_docs");
+            assert_eq!(config.reference.sources[0].source_type, SourceType::Local);
+            assert_eq!(config.reference.sources[0].path, PathBuf::from("./toml_docs"));
+
+            // Source 1: Comes entirely from env
+            assert_eq!(config.reference.sources[1].name, "env_notes");
+            assert_eq!(config.reference.sources[1].source_type, SourceType::Local);
+            assert_eq!(config.reference.sources[1].path, PathBuf::from("/env/notes"));
 
              Ok(())
          });

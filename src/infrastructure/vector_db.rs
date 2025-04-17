@@ -1,19 +1,19 @@
 // NOTE: use statements will need adjustment after moving files
-use serde::{Deserialize, Serialize};
+// Remove unused Serialize/Deserialize here (used in payload module)
+// use serde::{Deserialize, Serialize};
 use log;
 // Use the re-exported module path for Qdrant internally
 pub use qdrant_client; // Re-export the entire module
 use self::qdrant_client::Qdrant;
-use self::qdrant_client::{
-    Payload,
-    qdrant::{PointStruct, ScoredPoint, SearchPoints, PointId, Vectors, WithPayloadSelector, WithVectorsSelector, Distance, VectorParams, CreateCollectionBuilder, UpsertPointsBuilder},
-};
+use self::qdrant_client::{Payload, qdrant::{PointStruct, SearchPoints, PointId, Vectors, WithPayloadSelector, WithVectorsSelector, Distance, VectorParams, CreateCollectionBuilder, UpsertPointsBuilder}};
+// Remove unused ScoredPoint import
+// use self::qdrant_client::qdrant::ScoredPoint;
 use uuid::Uuid;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 
-// Assuming DocumentToUpsert is now in embedding.rs
-use super::embedding::DocumentToUpsert;
+// Remove unused DocumentToUpsert from embedding import
+// use super::embedding::DocumentToUpsert;
 // Assuming VectorRepository trait is in domain/vector_repository.rs
 use crate::domain::vector_repository::VectorRepository;
 use self::qdrant_client::qdrant::value::Kind as QdrantValueKind;
@@ -31,7 +31,7 @@ mod payload {
 }
 pub use self::payload::DocumentPayload;
 
-// --- Document to Upsert --- (Consider moving this definition)
+// --- Document to Upsert --- (Keep this definition)
 // Structure passed to upsert_documents. Contains data needed to create PointStruct.
 #[derive(Debug, Clone)]
 pub struct DocumentToUpsert {
@@ -328,55 +328,63 @@ impl VectorRepository for VectorDb {
 mod vector_db_infra_tests {
     use super::*;
     use tokio;
-    use testcontainers_modules::qdrant::QdrantImage;
-    use testcontainers::clients::Cli;
-    use testcontainers::core::{WaitFor, ContainerPort, ContainerAsync, IntoContainerPort};
-    use testcontainers::{GenericImage, ImageExt};
-    use serial_test::serial; // Add serial_test
-    use tempfile::tempdir; // Required for some tests
+    // Remove QdrantImage import as it's not available
+    // use testcontainers_modules::qdrant::QdrantImage;
+    // Remove clients import for now
+    // use testcontainers::clients::Cli;
+    use testcontainers::core::{WaitFor, IntoContainerPort};
+    use testcontainers::GenericImage;
+    use testcontainers::runners::AsyncRunner; // Import the trait for .start()
+    use serial_test::serial;
+    use std::error::Error;
 
     // Helper function to set up Qdrant container for tests
     #[serial] // Ensure tests using the container run serially
-    async fn setup_qdrant_container() -> (ContainerAsync<GenericImage>, String) { // Return container and URL
-        let docker = Cli::default();
-        let image = GenericImage::new("qdrant/qdrant", "latest") // Use official image
+    async fn setup_qdrant_container() -> anyhow::Result<()> {
+        // Docker client might be handled implicitly now
+        // let docker = testcontainers::clients::Cli::default();
+        let image = GenericImage::new("qdrant/qdrant", "latest")
             .with_wait_for(WaitFor::message_on_stderr("Actix runtime found; starting in Actix runtime"))
-            .with_exposed_port(6333.tcp()) // Qdrant standard gRPC port
-            .with_exposed_port(6334.tcp()); // Qdrant standard HTTP/REST port
+            .with_exposed_port(6333.tcp())
+            .with_exposed_port(6334.tcp());
 
-        let container = docker.run(image).await;
-        let http_port = container.get_host_port_ipv4(6334).await;
+        // Use start() instead of docker.run()
+        let container = image.start().await?;
+        let http_port = container.get_host_port_ipv4(6334).await?;
         let qdrant_url = format!("http://localhost:{}", http_port);
-        (container, qdrant_url)
+        // Set env var for other tests to use
+        std::env::set_var("QDRANT_TEST_URL", qdrant_url);
+        Ok(())
     }
 
     // Basic test for new and initialize
     #[tokio::test]
     #[serial]
-    async fn test_vector_db_new_and_initialize() {
-        let (_container, qdrant_url) = setup_qdrant_container().await;
+    async fn test_vector_db_new_and_initialize() -> Result<()> {
+        setup_qdrant_container().await?; // Run setup first
+        let qdrant_url = std::env::var("QDRANT_TEST_URL").expect("QDRANT_TEST_URL not set");
         let client = Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
-        let vector_db = VectorDb::new(Box::new(client), "test_collection_init".to_string(), 3).expect("Failed to create VectorDb");
+        let vector_db = VectorDb::new(Box::new(client), "test_collection_init".to_string(), 3)?;
 
-        let init_result = vector_db.initialize_collection().await;
-        assert!(init_result.is_ok(), "Initialize collection failed: {:?}", init_result.err());
+        vector_db.initialize_collection().await?;
 
         // Try initializing again, should succeed
-        let init_again_result = vector_db.initialize_collection().await;
-        assert!(init_again_result.is_ok(), "Initialize collection again failed: {:?}", init_again_result.err());
+        vector_db.initialize_collection().await?;
+        Ok(())
     }
 
     // Test upserting and searching
     #[tokio::test]
     #[serial]
-    async fn test_vector_db_upsert_and_search() {
-        let (_container, qdrant_url) = setup_qdrant_container().await;
-        let client = Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
+    async fn test_vector_db_upsert_and_search() -> Result<()> {
+        setup_qdrant_container().await?; // Run setup first
+        let qdrant_url = std::env::var("QDRANT_TEST_URL").expect("QDRANT_TEST_URL not set");
+        let client = Qdrant::from_url(&qdrant_url).build()?;
         let collection_name = format!("test_coll_{}", Uuid::new_v4());
         let vector_size: u64 = 3;
-        let vector_db = VectorDb::new(Box::new(client), collection_name.clone(), vector_size).expect("Failed to create VectorDb");
+        let vector_db = VectorDb::new(Box::new(client), collection_name.clone(), vector_size)?;
 
-        vector_db.initialize_collection().await.expect("Collection initialization failed");
+        vector_db.initialize_collection().await?;
 
         // Prepare documents to upsert
         let docs_to_upsert = vec![
@@ -404,18 +412,14 @@ mod vector_db_infra_tests {
         ];
 
         // Use the trait method for testing
-        let upsert_result = vector_db.upsert_documents(&docs_to_upsert).await;
-        assert!(upsert_result.is_ok(), "Upsert failed: {:?}", upsert_result.err());
+        vector_db.upsert_documents(&docs_to_upsert).await?;
 
         // Allow Qdrant some time to index (important!)
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         // Search for a vector close to the first document
         let query_vector = vec![0.15, 0.25, 0.6];
-        let search_result = vector_db.search(query_vector.clone(), 5, Some(0.5)).await;
-
-        assert!(search_result.is_ok(), "Search failed: {:?}", search_result.err());
-        let results = search_result.unwrap();
+        let results = vector_db.search(query_vector.clone(), 5, Some(0.5)).await?;
 
         println!("Search Results: {:?}", results); // Debug output
 
@@ -440,54 +444,61 @@ mod vector_db_infra_tests {
 
         // Search for a vector close to the second document
         let query_vector_b = vec![0.7, 0.15, 0.15];
-        let search_result_b = vector_db.search(query_vector_b.clone(), 5, Some(0.5)).await.unwrap();
+        let search_result_b = vector_db.search(query_vector_b.clone(), 5, Some(0.5)).await?;
         assert_eq!(search_result_b.len(), 1, "Expected 1 result for query B");
         assert_eq!(search_result_b[0].file_path, "file2.md");
         assert_eq!(search_result_b[0].source, Some("source_B".to_string()));
         assert_eq!(search_result_b[0].content_chunk, "This is chunk 1 from source B.");
         assert!(search_result_b[0].metadata.is_none());
-
+        Ok(())
     }
 
     // Test invalid parameters for new()
     #[tokio::test]
-    async fn test_vector_db_new_invalid_params() {
-        let (_container, qdrant_url) = setup_qdrant_container().await;
-        let client = Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
-        assert!(VectorDb::new(Box::new(client.clone()), "".to_string(), 3).is_err()); // Empty collection name
-        assert!(VectorDb::new(Box::new(client), "test".to_string(), 0).is_err()); // Zero vector size
+    async fn test_vector_db_new_invalid_params() -> Result<()> {
+        setup_qdrant_container().await?; // Run setup first
+        let qdrant_url = std::env::var("QDRANT_TEST_URL").expect("QDRANT_TEST_URL not set");
+        // Recreate client instead of cloning
+        let client1 = Qdrant::from_url(&qdrant_url).build()?;
+        assert!(VectorDb::new(Box::new(client1), "".to_string(), 3).is_err()); // Empty collection name
+        let client2 = Qdrant::from_url(&qdrant_url).build()?;
+        assert!(VectorDb::new(Box::new(client2), "test".to_string(), 0).is_err()); // Zero vector size
+        Ok(())
     }
 
     // Test search with wrong vector dimension
     #[tokio::test]
     #[serial]
-    async fn test_vector_db_search_wrong_dimension() {
-         let (_container, qdrant_url) = setup_qdrant_container().await;
-         let client = Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
-         let collection_name = format!("test_coll_dim_{}", Uuid::new_v4());
-         let vector_db = VectorDb::new(Box::new(client), collection_name, 3).expect("Failed to create VectorDb");
-         vector_db.initialize_collection().await.expect("Init failed");
+    async fn test_vector_db_search_wrong_dimension() -> Result<()> {
+        setup_qdrant_container().await?; // Run setup first
+        let qdrant_url = std::env::var("QDRANT_TEST_URL").expect("QDRANT_TEST_URL not set");
+        let client = Qdrant::from_url(&qdrant_url).build()?;
+        let collection_name = format!("test_coll_dim_{}", Uuid::new_v4());
+        let vector_db = VectorDb::new(Box::new(client), collection_name, 3)?;
+        vector_db.initialize_collection().await?;
 
-         let query_vector = vec![0.1, 0.2]; // Wrong dimension (2 instead of 3)
-         let search_result = vector_db.search(query_vector, 5, None).await;
-         assert!(search_result.is_err());
-         assert!(search_result.unwrap_err().to_string().contains("Query vector dimension"));
-     }
+        let query_vector = vec![0.1, 0.2]; // Wrong dimension (2 instead of 3)
+        let search_result = vector_db.search(query_vector, 5, None).await;
+        assert!(search_result.is_err());
+        assert!(search_result.unwrap_err().to_string().contains("Query vector dimension"));
+        Ok(())
+    }
 
-     // Test upserting an empty list
-     #[tokio::test]
-     #[serial]
-     async fn test_vector_db_upsert_empty() {
-         let (_container, qdrant_url) = setup_qdrant_container().await;
-         let client = Qdrant::from_url(&qdrant_url).build().expect("Failed to create Qdrant client");
-         let collection_name = format!("test_coll_empty_{}", Uuid::new_v4());
-         let vector_db = VectorDb::new(Box::new(client), collection_name, 3).expect("Failed to create VectorDb");
-         vector_db.initialize_collection().await.expect("Init failed");
+    // Test upserting an empty list
+    #[tokio::test]
+    #[serial]
+    async fn test_vector_db_upsert_empty() -> Result<()> {
+        setup_qdrant_container().await?; // Run setup first
+        let qdrant_url = std::env::var("QDRANT_TEST_URL").expect("QDRANT_TEST_URL not set");
+        let client = Qdrant::from_url(&qdrant_url).build()?;
+        let collection_name = format!("test_coll_empty_{}", Uuid::new_v4());
+        let vector_db = VectorDb::new(Box::new(client), collection_name, 3)?;
+        vector_db.initialize_collection().await?;
 
-         let empty_docs: Vec<DocumentToUpsert> = vec![];
-         let upsert_result = vector_db.upsert_documents(&empty_docs).await;
-         assert!(upsert_result.is_ok(), "Upserting empty list should succeed without error");
-     }
+        let empty_docs: Vec<DocumentToUpsert> = vec![];
+        vector_db.upsert_documents(&empty_docs).await?;
+        Ok(())
+    }
 
     // TODO: Add test case for serialization/deserialization errors during upsert/search
     // TODO: Add test case for search result filtering by source (requires modifying search args/logic)

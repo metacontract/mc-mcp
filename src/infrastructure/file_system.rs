@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use walkdir::WalkDir;
 use super::markdown::parse_markdown_to_text; // Assuming markdown.rs exists
 use serde_json;
-use anyhow::{Context, Result};
 use log::{debug, error, warn};
 
 // Define module first
