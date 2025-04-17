@@ -471,7 +471,8 @@ mod tests {
     }
 }
 
-const url = "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
-const dest = "artifacts/prebuilt_index.jsonl.gz";
-download_if_not_exists(url, dest)?;
+const PREBUILT_INDEX_URL: &str = "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
+const PREBUILT_INDEX_DEST: &str = "artifacts/prebuilt_index.jsonl.gz";
+
+download_if_not_exists(PREBUILT_INDEX_URL, PREBUILT_INDEX_DEST)?;
 
