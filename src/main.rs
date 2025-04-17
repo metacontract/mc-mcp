@@ -28,6 +28,7 @@ use mc_mcp::config; // Import config module directly
 use mc_mcp::file_system; // Import file_system module directly
 use mc_mcp::domain; // Import domain for SearchQuery
 use mc_mcp::config::DocumentSource; // Import DocumentSource for MockReferenceService
+use crate::infrastructure::file_system::download_if_not_exists;
 
 use log;
 use env_logger;
@@ -469,4 +470,8 @@ mod tests {
         };
     }
 }
+
+let url = "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
+let dest = "artifacts/prebuilt_index.jsonl.gz";
+download_if_not_exists(url, dest)?;
 

@@ -8,6 +8,9 @@ use log::{debug, error, warn};
 use anyhow::Result;
 use std::io::{BufRead, BufReader};
 use flate2::read::GzDecoder;
+use reqwest;
+use std::io::copy;
+use std::path::Path;
 
 // Import DocumentToUpsert from the correct module
 use crate::infrastructure::vector_db::DocumentToUpsert;
@@ -206,6 +209,20 @@ pub fn load_documents_from_source(dir_path: &PathBuf) -> Result<HashMap<String, 
     }
 
     Ok(documents)
+}
+
+/// 指定URLからprebuilt_index.jsonl(.gz)をダウンロード（既存ならスキップ）
+pub fn download_if_not_exists(url: &str, dest: &str) -> anyhow::Result<()> {
+    if Path::new(dest).exists() {
+        println!("Index file already exists: {}", dest);
+        return Ok(());
+    }
+    println!("Downloading index from {} ...", url);
+    let mut resp = reqwest::blocking::get(url)?;
+    let mut out = File::create(dest)?;
+    copy(&mut resp, &mut out)?;
+    println!("Downloaded index to {}", dest);
+    Ok(())
 }
 
 #[cfg(test)]

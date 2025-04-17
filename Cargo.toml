@@ -36,6 +36,7 @@ testcontainers-modules = { version = "0.11.6" }
 serial_test = "3.1.1"
 mockall = "0.12"
 flate2 = "1.1.1"
+reqwest = { version = "0.11", features = ["blocking"] }
 
 [dev-dependencies]
 # From application
