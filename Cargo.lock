@@ -1899,6 +1899,7 @@ dependencies = [
  "env_logger",
  "fastembed",
  "figment",
+ "flate2",
  "futures",
  "log",
  "mockall",
