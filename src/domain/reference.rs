@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
-use downcast_rs::Downcast;
 use crate::config::DocumentSource;
+use std::sync::Arc;
+use futures::future::BoxFuture;
+use mockall::automock;
+use qdrant_client::qdrant::{PointStruct, ScoredPoint};
 
 // Represents a query for searching documents
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,10 +35,15 @@ pub struct SearchResult {
 
 // Define the interface for reference-related operations
 #[async_trait::async_trait]
-pub trait ReferenceService: Send + Sync + Downcast {
+pub trait ReferenceService: Send + Sync + 'static {
     // Comment out the unused method definition
     // async fn index_documents(&self, docs_path: Option<PathBuf>) -> Result<()>;
     async fn index_sources(&self, sources: &[DocumentSource]) -> Result<()>;
     async fn search_documents(&self, query: SearchQuery, score_threshold: Option<f32>) -> Result<Vec<SearchResult>>;
+    fn search(&self, collection_name: String, vector: Vec<f32>, limit: u64) -> BoxFuture<Result<Vec<ScoredPoint>, String>>;
+    fn upsert(&self, collection_name: String, points: Vec<PointStruct>) -> BoxFuture<Result<(), String>>;
 }
-downcast_rs::impl_downcast!(ReferenceService);
+
+pub struct EmbeddingResult {
+    pub vectors: Vec<Vec<f32>>,
+}

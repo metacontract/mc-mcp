@@ -12,12 +12,13 @@ serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 log = "0.4"
 async-trait = "0.1"
+futures = "0.3"
 # From infrastructure
 comrak = "0.24"
 walkdir = "2"
 fastembed = { version = "4", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries"] }
 # From server
-rmcp = { version = "0.1", features = ["server", "transport-io", "client"] }
+rmcp = { version = "0.1.5", features = ["client", "server"] }
 # From workspace.dependencies (and used across crates)
 tokio = { version = "1", features = ["full"] } # Merged features
 serde_json = "1"
@@ -29,18 +30,28 @@ figment = { version = "0.10", features = ["env", "toml", "test"] }
 # Added for the new features
 downcast-rs = "1.2.1"
 env_logger = "0.11.3"
+# Required by src files, moved from dev-dependencies
+testcontainers = { version = "0.23.3" }
+testcontainers-modules = { version = "0.11.6" }
+serial_test = "3.1.1"
+mockall = "0.12"
 
 [dev-dependencies]
 # From application
 tempfile = "3.10.1" # Keep specific version from application? Or use infra's "3"? Let's use 3.10.1 for now.
-testcontainers = { version = "0.23.3" }
-testcontainers-modules = { version = "0.11.6" }
-tonic = "0.12"
+# Use version 0.11.6 which is available on crates.io
 # From infrastructure
 # tempfile = "3" # Conflicting version, using 3.10.1 above
 # tokio = { version = "1", features = ["macros", "rt-multi-thread"] } # Already covered by dependencies
-# testcontainers = { workspace = true } # Already covered
-serial_test = "3.1.1"
+# testcontainers = { workspace = true } # Moved to dependencies
 simple_logger = "5.0"
 assert_matches = "1.5.0"
 wiremock = "0.6.1"
+# testcontainers = { version = "0.23.3" } # Moved to dependencies
+# testcontainers-modules = { version = "0.11.6" } # Moved to dependencies
+tonic = "0.12"
+# serial_test = "3.1.1" # Moved to dependencies
+# mockall = "0.12" # Moved to dependencies
+
+[build-dependencies]
+# Add build dependencies if needed

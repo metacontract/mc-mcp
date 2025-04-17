@@ -5,11 +5,10 @@ use crate::domain::reference::{SearchQuery, SearchResult};
 use crate::infrastructure::EmbeddingGenerator; // Keep this one
 // Remove unused qdrant types
 // use crate::infrastructure::qdrant_client::qdrant::{point_id::PointIdOptions, value::Kind as QdrantValueKind};
-use std::path::PathBuf;
 use std::sync::Arc;
 use anyhow::{anyhow, Result};
 // Keep used log macros
-use log::{info, error, warn};
+use log::{info, error};
 // Remove unused Value import
 // use serde_json::Value;
 
@@ -28,6 +27,11 @@ use crate::config::{DocumentSource, SourceType};
 use crate::infrastructure::file_system::load_documents_from_source;
 // Use the concrete DocumentToUpsert from vector_db
 use crate::infrastructure::vector_db::DocumentToUpsert;
+use std::time::SystemTime;
+use qdrant_client::qdrant::{ScoredPoint, PointStruct};
+use futures::future::BoxFuture;
+use async_trait::async_trait;
+use serial_test::serial;
 
 // Implementation using infrastructure components
 pub struct ReferenceServiceImpl {
@@ -188,19 +192,39 @@ impl ReferenceService for ReferenceServiceImpl {
             }
         }
     }
+
+    // Implement the non-async methods by delegating to the VectorRepository
+    fn search(&self, collection_name: String, vector: Vec<f32>, limit: u64) -> BoxFuture<Result<Vec<ScoredPoint>, String>> {
+        // This method's signature in the trait doesn't match VectorRepository's search
+        // VectorRepository::search is async and returns Result<Vec<SearchResult>>
+        // This suggests a potential mismatch between the trait definition and its intended use
+        // or the VectorRepository implementation.
+        // For now, provide a dummy implementation that returns an error or unimplemented.
+        // Box::pin(async move { Err("ReferenceServiceImpl::search is not fully implemented due to signature mismatch".to_string()) })
+        // OR, if we assume VectorRepository should have a compatible non-async search:
+        // self.vector_db.search_sync(collection_name, vector, limit) // Assuming search_sync exists
+        unimplemented!("ReferenceServiceImpl::search needs review due to trait/impl signature mismatch");
+    }
+
+    fn upsert(&self, collection_name: String, points: Vec<PointStruct>) -> BoxFuture<Result<(), String>> {
+        // Similar issue: VectorRepository::upsert_documents is async and takes &[DocumentToUpsert]
+        // This trait method takes Vec<PointStruct> and is sync (returns BoxFuture)
+        // This indicates a significant design inconsistency.
+        // Provide a dummy implementation for now.
+        // Box::pin(async move { Err("ReferenceServiceImpl::upsert is not fully implemented due to signature mismatch".to_string()) })
+        unimplemented!("ReferenceServiceImpl::upsert needs review due to trait/impl signature mismatch");
+    }
 }
 
 // --- Tests --- //
 #[cfg(test)]
 mod tests {
     use super::*;
-
-
-
-
-
     use std::sync::{Arc, Mutex};
-    use crate::infrastructure::embedding::{EmbeddingGenerator, EmbeddingModel};
+    // Import EmbeddingGenerator directly
+    use crate::infrastructure::embedding::EmbeddingGenerator;
+    // Import EmbeddingModel directly from fastembed as suggested
+    use fastembed::EmbeddingModel;
     use crate::domain::vector_repository::VectorRepository;
     use anyhow::Result;
     use async_trait::async_trait;
@@ -264,6 +288,7 @@ mod tests {
 
     // --- Keep search tests ---
     #[tokio::test]
+    #[serial]
     async fn test_search_documents_success() -> Result<()> {
         let (service, mock_vector_db) = setup_test_service().await;
         // ... rest of test ...
@@ -271,6 +296,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_search_documents_no_results() -> Result<()> {
          let (service, mock_vector_db) = setup_test_service().await;
          // ... rest of test ...

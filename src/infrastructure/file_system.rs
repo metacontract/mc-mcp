@@ -1,11 +1,15 @@
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, File};
 use std::path::PathBuf;
 use walkdir::WalkDir;
 use super::markdown::parse_markdown_to_text; // Assuming markdown.rs exists
 use serde_json;
 use log::{debug, error, warn};
 use anyhow::Result;
+use std::io::{BufRead, BufReader};
+
+// Import DocumentToUpsert from the correct module
+use crate::infrastructure::vector_db::DocumentToUpsert;
 
 // Define module first
 mod document_index {
@@ -66,12 +70,53 @@ pub fn load_documents(docs_path: Option<PathBuf>) -> Result<SimpleDocumentIndex,
     Ok(index)
 }
 
-/// Loads a prebuilt document index from a JSON file.
-pub fn load_prebuilt_index(path: PathBuf) -> Result<SimpleDocumentIndex, String> {
-    let file = std::fs::File::open(&path).map_err(|e| format!("Failed to open prebuilt index: {}", e))?;
-    let raw_map: std::collections::HashMap<String, (String, String)> = serde_json::from_reader(file)
-        .map_err(|e| format!("Failed to parse prebuilt index JSON: {}", e))?;
-    Ok(raw_map)
+/// Loads a prebuilt document index from a JSONL file.
+/// Each line of the file is expected to be a JSON representation of `DocumentToUpsert`.
+pub fn load_prebuilt_index(path: PathBuf) -> Result<Vec<DocumentToUpsert>> {
+    log::info!("Loading prebuilt index from JSONL file: {:?}", path);
+
+    let file = File::open(&path)
+        .map_err(|e| anyhow::anyhow!("Failed to open prebuilt index file {:?}: {}", path, e))?;
+    let reader = BufReader::new(file);
+
+    let mut documents = Vec::new();
+    let mut line_number = 0;
+    let mut errors = 0;
+
+    for line_result in reader.lines() {
+        line_number += 1;
+        let line = match line_result {
+            Ok(l) => l,
+            Err(e) => {
+                error!("Failed to read line {} from {:?}: {}", line_number, path, e);
+                errors += 1;
+                continue; // Skip this line
+            }
+        };
+
+        if line.trim().is_empty() {
+            continue; // Skip empty lines
+        }
+
+        match serde_json::from_str::<DocumentToUpsert>(&line) {
+            Ok(doc) => documents.push(doc),
+            Err(e) => {
+                error!("Failed to parse JSON on line {} in {:?}: {}. Line content: {}", line_number, path, e, line);
+                errors += 1;
+                // Optionally, decide whether to stop processing or just skip the line
+                // continue;
+            }
+        }
+    }
+
+    if errors > 0 {
+        log::warn!("Encountered {} errors while loading prebuilt index from {:?}. Returning successfully loaded {} documents.", errors, path, documents.len());
+        // Depending on requirements, you might want to return an error if any line fails
+        // return Err(anyhow::anyhow!("Failed to load prebuilt index completely due to {} errors.", errors));
+    }
+
+    log::info!("Successfully loaded {} documents from prebuilt index {:?}", documents.len(), path);
+    Ok(documents)
 }
 
 /// Loads Markdown documents from multiple sources, each with its own source metadata.
@@ -161,23 +206,13 @@ pub fn load_documents_from_source(dir_path: &PathBuf) -> Result<HashMap<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::{self, File};
     use std::io::Write;
     use tempfile::tempdir;
-    use std::path::Path;
-
-    // Mock parse_markdown_to_text for file_system tests
-    mod markdown {
-        pub fn parse_markdown_to_text(markdown: &str) -> String {
-            markdown.replace("#", "").split_whitespace().collect::<Vec<&str>>().join(" ")
-        }
-    }
-    use self::markdown::parse_markdown_to_text;
 
     #[test]
     fn test_load_documents_default_path_not_exists() {
         // Need to ensure the default path doesn't exist for this test
-        if Path::new("metacontract/mc/site/docs").exists() {
+        if PathBuf::from("metacontract/mc/site/docs").exists() {
            println!("Skipping test_load_documents_default_path_not_exists because default path exists.");
            return;
         }
@@ -231,28 +266,69 @@ mod tests {
     }
 
     #[test]
-    fn test_load_prebuilt_index_json() {
-        use std::fs::File;
-        use std::io::Write;
-        use tempfile::tempdir;
+    fn test_load_prebuilt_index_jsonl_success() {
         let dir = tempdir().unwrap();
-        let index_path = dir.path().join("prebuilt_index.json");
-        // ダミーのインデックスデータ
-        let dummy = serde_json::json!({
-            "file1.md": ["Dummy content 1", "mc-docs"],
-            "file2.md": ["Dummy content 2", "mc-docs"]
-        });
+        let index_path = dir.path().join("prebuilt_index.jsonl");
         let mut file = File::create(&index_path).unwrap();
-        write!(file, "{}", dummy.to_string()).unwrap();
+
+        // Create valid JSONL data matching DocumentToUpsert
+        let doc1 = serde_json::json!({ "file_path": "file1.md", "vector": [0.1, 0.2], "source": "prebuilt", "content_chunk": "chunk 1", "metadata": null });
+        let doc2 = serde_json::json!({ "file_path": "file2.md", "vector": [0.3, 0.4], "source": "prebuilt", "content_chunk": "chunk 2", "metadata": { "tag": "test" } });
+
+        writeln!(file, "{}", doc1.to_string()).unwrap();
+        writeln!(file, "").unwrap(); // Empty line to be skipped
+        writeln!(file, "{}", doc2.to_string()).unwrap();
         drop(file);
-        // テスト対象関数（未実装）
+
         let result = load_prebuilt_index(index_path.clone());
-        assert!(result.is_ok(), "Should load prebuilt index JSON");
-        let index = result.unwrap();
-        assert_eq!(index.len(), 2);
-        assert_eq!(index.get("file1.md"), Some(&("Dummy content 1".to_string(), "mc-docs".to_string())));
-        assert_eq!(index.get("file2.md"), Some(&("Dummy content 2".to_string(), "mc-docs".to_string())));
+        assert!(result.is_ok(), "Should load prebuilt index JSONL");
+        let documents = result.unwrap();
+
+        assert_eq!(documents.len(), 2);
+
+        assert_eq!(documents[0].file_path, "file1.md");
+        assert_eq!(documents[0].vector, vec![0.1, 0.2]);
+        assert_eq!(documents[0].source, Some("prebuilt".to_string()));
+        assert_eq!(documents[0].content_chunk, "chunk 1");
+        assert!(documents[0].metadata.is_none());
+
+        assert_eq!(documents[1].file_path, "file2.md");
+        assert_eq!(documents[1].vector, vec![0.3, 0.4]);
+        assert_eq!(documents[1].source, Some("prebuilt".to_string()));
+        assert_eq!(documents[1].content_chunk, "chunk 2");
+        assert_eq!(documents[1].metadata, Some(serde_json::json!({ "tag": "test" })));
+
         dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_load_prebuilt_index_jsonl_parse_error() {
+        let dir = tempdir().unwrap();
+        let index_path = dir.path().join("prebuilt_index_error.jsonl");
+        let mut file = File::create(&index_path).unwrap();
+        let doc1 = serde_json::json!({ "file_path": "file1.md", "vector": [0.1], "source": "ok", "content_chunk": "ok" });
+        writeln!(file, "{}", doc1.to_string()).unwrap();
+        writeln!(file, "{{\"invalid_json").unwrap(); // Malformed JSON
+        let doc3 = serde_json::json!({ "file_path": "file3.md", "vector": [0.3], "source": "ok", "content_chunk": "ok3" });
+        writeln!(file, "{}", doc3.to_string()).unwrap();
+        drop(file);
+
+        let result = load_prebuilt_index(index_path.clone());
+        // We expect Ok because we log errors and continue
+        assert!(result.is_ok(), "Load should succeed even with parse errors");
+        let documents = result.unwrap();
+        assert_eq!(documents.len(), 2); // Only the valid lines should be parsed
+        assert_eq!(documents[0].file_path, "file1.md");
+        assert_eq!(documents[1].file_path, "file3.md");
+
+        dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_load_prebuilt_index_file_not_found() {
+        let path = PathBuf::from("non_existent_prebuilt.jsonl");
+        let result = load_prebuilt_index(path);
+        assert!(result.is_err());
     }
 
     #[test]

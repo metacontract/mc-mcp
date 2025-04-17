@@ -1,5 +1,6 @@
 use fastembed::{TextEmbedding, InitOptions, Error as FastEmbedError, EmbeddingModel};
 use serde::{Deserialize, Serialize};
+use serial_test::serial;
 
 /// A struct responsible for generating text embeddings using a pre-initialized model.
 pub struct EmbeddingGenerator {
@@ -52,10 +53,12 @@ pub struct DocumentToUpsert {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     // Basic test to ensure initialization and embedding works
     // Note: This test might download model data on first run
     #[test]
+    #[serial]
     fn test_embedding_generator_init_and_embed() -> Result<(), FastEmbedError> {
         let model_name = EmbeddingModel::AllMiniLML6V2; // Use EmbeddingModel directly
         let generator = EmbeddingGenerator::new(model_name.clone())?;
