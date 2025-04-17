@@ -11,6 +11,7 @@ use qdrant_client::qdrant::{PointStruct, ScoredPoint};
 pub struct SearchQuery {
     pub text: String,
     pub limit: Option<usize>,
+    pub sources: Option<Vec<String>>,
     // Add filter capabilities later if needed
     // pub filter: Option<serde_json::Value>,
 }

@@ -184,6 +184,7 @@ impl MyHandler {
         let search_query = domain::reference::SearchQuery {
             text: query.clone(),
             limit: Some(limit),
+            sources: None,
         };
         match self.reference_service.search_documents(search_query, None).await {
             Ok(results) => {
