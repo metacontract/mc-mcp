@@ -933,6 +933,66 @@ mod tests {
         std::env::set_var("PATH", original_path);
     }
 
+    // Test for deploy dry run failure
+    #[tokio::test]
+    async fn test_mc_deploy_dry_run_failure() {
+        let manifest_dir_check = env!("CARGO_MANIFEST_DIR");
+        std::env::set_current_dir(manifest_dir_check).expect("Failed to set current dir to project root");
+
+        let expected_script_path = "scripts/Deploy.s.sol";
+        let (handler, _mock_service) = setup_mock_handler();
+
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let mock_bin_path = std::path::Path::new(manifest_dir).join("tests/mock_bin");
+        if !mock_bin_path.exists() {
+            std::fs::create_dir_all(&mock_bin_path).unwrap();
+        }
+        let forge_script_path_mock = mock_bin_path.join("forge");
+        let mock_script_content = format!(
+            r#"#!/bin/sh
+if [ "$1" = "script" ] && [ "$2" = "{}" ] && [ "$#" -eq 2 ]; then
+  echo "Error: Dry run script failed simulation." >&2 # Output to stderr
+  exit 1 # Exit with error code
+else
+  echo "Unexpected mock forge call in deploy dry run failure test: $@" >&2
+  exit 1
+fi
+"#,
+            expected_script_path
+        );
+        #[cfg(unix)]
+        std::fs::write(&forge_script_path_mock, mock_script_content).unwrap();
+        #[cfg(windows)] // Basic windows version
+        std::fs::write(&forge_script_path_mock, "@echo off\necho Error: Dry run script failed simulation. >&2\nexit /b 1").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&forge_script_path_mock).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&forge_script_path_mock, perms).unwrap();
+        }
+
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let mock_bin_abs_path = mock_bin_path.canonicalize().unwrap();
+        std::env::set_var("PATH", format!("{}:{}", mock_bin_abs_path.display(), original_path));
+
+        let args = McDeployArgs { broadcast: Some(false) }; // Dry run
+        let result = handler.mc_deploy(args).await;
+
+        assert!(result.is_ok());
+        let call_result = result.unwrap();
+        assert_eq!(call_result.is_error, Some(true), "Expected error status for failed dry run");
+        assert!(!call_result.content.is_empty());
+
+        let output_text = &call_result.content[0].raw.as_text().expect("Expected text").text;
+        assert!(output_text.contains("Forge Deploy Dry Run Results"), "Should indicate dry run results title");
+        assert!(output_text.contains("Exit Code: 1"), "Should show exit code 1");
+        assert!(output_text.contains("Error: Dry run script failed simulation."), "Should contain stderr message");
+
+        std::env::set_var("PATH", original_path);
+    }
+
     // Add test for case where deploy script is not configured
     #[tokio::test]
     async fn test_mc_deploy_no_script_configured() {
@@ -943,8 +1003,8 @@ mod tests {
         // Create config with no deploy script path
         let config = McpConfig {
             scripts: mc_mcp::config::ScriptsConfig {
-                deploy: None, // Explicitly None
-                upgrade: None,
+                deploy: None, // Explicitly None for deploy
+                upgrade: Some("scripts/Upgrade.s.sol".to_string()), // Provide upgrade to avoid unrelated errors
             },
             ..Default::default()
         };
@@ -961,6 +1021,7 @@ mod tests {
         assert!(error_text.contains("Deploy script path is not configured"));
     }
 
+    // Add test for deploy broadcast success
     #[tokio::test]
     async fn test_mc_deploy_broadcast_success() {
         // Ensure we are in the project root directory before starting the test
@@ -971,8 +1032,6 @@ mod tests {
         let (handler, _mock_service) = setup_mock_handler();
 
         let mock_bin_path = std::path::Path::new(manifest_dir).join("tests/mock_bin");
-        let forge_script_on_mock_bin = mock_bin_path.join("forge"); // パスだけ作る
-
         // --- Ensure mock_bin directory exists ---
         if !mock_bin_path.exists() {
             std::fs::create_dir_all(&mock_bin_path).expect("Failed to create mock_bin dir");
@@ -996,9 +1055,7 @@ fi
         #[cfg(unix)]
         std::fs::write(&forge_script_on_mock_bin, mock_script_content_broadcast).expect("Failed to write mock broadcast script");
         #[cfg(windows)] // Basic windows version for completeness
-        std::fs::write(&forge_script_on_mock_bin, "@echo off
-echo Transaction Hash: 0xmockhashbroadcast
-exit /b 0").expect("Failed to write mock broadcast script (win)");
+        std::fs::write(&forge_script_on_mock_bin, "@echo off\necho Transaction Hash: 0xmockhashbroadcast\nexit /b 0").expect("Failed to write mock broadcast script (win)");
         // --- End mock script definition ---
 
 
@@ -1084,8 +1141,65 @@ exit /b 0").expect("Failed to write mock broadcast script (win)");
         std::env::set_var("PATH", original_path);
     }
 
-    // TODO: Add tests for broadcast mode failure
-    // TODO: Add tests for dry run failure
+    // Test for deploy broadcast failure
+    #[tokio::test]
+    async fn test_mc_deploy_broadcast_failure() {
+        let manifest_dir_check = env!("CARGO_MANIFEST_DIR");
+        std::env::set_current_dir(manifest_dir_check).expect("Failed to set current dir to project root");
+
+        let expected_script_path = "scripts/Deploy.s.sol";
+        let (handler, _mock_service) = setup_mock_handler();
+
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let mock_bin_path = std::path::Path::new(manifest_dir).join("tests/mock_bin");
+        if !mock_bin_path.exists() {
+            std::fs::create_dir_all(&mock_bin_path).unwrap();
+        }
+        let forge_script_path_mock = mock_bin_path.join("forge");
+        let mock_script_content = format!(
+            r#"#!/bin/sh
+if [ "$1" = "script" ] && [ "$2" = "{}" ] && [ "$3" = "--broadcast" ] && [ "$#" -eq 3 ]; then
+  echo "Error: Broadcast failed due to network issue." >&2 # Output to stderr
+  exit 1 # Exit with error code
+else
+  echo "Unexpected mock forge call in deploy broadcast failure test: $@" >&2
+  exit 1
+fi
+"#,
+            expected_script_path
+        );
+        #[cfg(unix)]
+        std::fs::write(&forge_script_path_mock, mock_script_content).unwrap();
+        #[cfg(windows)] // Basic windows version
+        std::fs::write(&forge_script_path_mock, "@echo off\necho Error: Broadcast failed due to network issue. >&2\nexit /b 1").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&forge_script_path_mock).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&forge_script_path_mock, perms).unwrap();
+        }
+
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let mock_bin_abs_path = mock_bin_path.canonicalize().unwrap();
+        std::env::set_var("PATH", format!("{}:{}", mock_bin_abs_path.display(), original_path));
+
+        let args = McDeployArgs { broadcast: Some(true) }; // Broadcast
+        let result = handler.mc_deploy(args).await;
+
+        assert!(result.is_ok());
+        let call_result = result.unwrap();
+        assert_eq!(call_result.is_error, Some(true), "Expected error status for failed broadcast");
+        assert!(!call_result.content.is_empty());
+
+        let output_text = &call_result.content[0].raw.as_text().expect("Expected text").text;
+        assert!(output_text.contains("Forge Deploy Results"), "Should indicate deploy results title");
+        assert!(output_text.contains("Exit Code: 1"), "Should show exit code 1");
+        assert!(output_text.contains("Error: Broadcast failed due to network issue."), "Should contain stderr message");
+
+        std::env::set_var("PATH", original_path);
+    }
 
     // --- mc_upgrade Tests --- //
 
