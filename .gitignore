@@ -18,3 +18,8 @@
 artifacts/
 *.jsonl
 *.jsonl.gz
+
+# Local template cache
+.cache/
+.cache/*
+.cache/mc-template/

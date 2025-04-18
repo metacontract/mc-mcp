@@ -43,7 +43,7 @@ use std::time::Duration;
 const PREBUILT_INDEX_URL: &str =
     "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
 const PREBUILT_INDEX_DEST: &str = "artifacts/prebuilt_index.jsonl.gz";
-const FORGE_TEMPLATE_REPO: &str = "metacontract/template";
+const MC_TEMPLATE_REPO: &str = "metacontract/template";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -277,13 +277,20 @@ impl MyHandler {
             )]));
         }
         // 2. Run forge init . -t <repo>
+        // テンプレートキャッシュが指定されていればローカルパスを使う
+        let template_arg = if let Ok(local_template) = std::env::var("MC_TEMPLATE_CACHE") {
+            // Foundryはローカルパスも-tで受け付ける
+            local_template
+        } else {
+            MC_TEMPLATE_REPO.to_string()
+        };
         let status = Command::new("forge")
-            .args(["init", ".", "-t", FORGE_TEMPLATE_REPO])
+            .args(["init", ".", "-t", &template_arg])
             .status()
             .map_err(|e| McpError::internal_error(format!("Failed to run forge: {e}"), None))?;
         if status.success() {
             Ok(CallToolResult::success(vec![Content::text(format!(
-                "Successfully initialized Foundry project with template: {FORGE_TEMPLATE_REPO}"
+                "Successfully initialized Foundry project with template: {MC_TEMPLATE_REPO}"
             ))]))
         } else {
             Ok(CallToolResult::error(vec![Content::text(format!(
@@ -624,16 +631,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_setup_empty_dir() {
+        // ここでキャッシュパスをハードコード
+        std::env::set_var("MC_TEMPLATE_CACHE", "./.cache/mc-template");
+
         let dir = tempfile::tempdir().unwrap();
         let old_dir = env::current_dir().unwrap();
         env::set_current_dir(&dir).unwrap();
-        // Mock Command::new("forge") if needed
-        // For now, just check the error message for non-empty dir
         let handler = MyHandler {
             reference_service: Arc::new(MockReferenceService::default()),
         };
         let result = handler.setup().await.unwrap();
-        // Since forge is likely not available in CI, just check for error or success message
         assert!(
             result.content[0]
                 .raw

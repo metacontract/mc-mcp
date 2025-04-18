@@ -159,6 +159,41 @@ See also: [config.rs](src/config.rs) for the full config structure.
 - **Integration tests**: Use [testcontainers](https://github.com/testcontainers/testcontainers-rs) for Qdrant
 - **CI/CD**: GitHub Actions for build, test, and prebuilt index artifact management
 
+## Testing & Troubleshooting
+
+Some tests (especially integration tests and embedding-related tests) may fail due to OS file descriptor limits or cache lock issues.
+
+### Common Commands (via Makefile)
+
+- **Unit tests (lib only, with cache lock cleanup, single-threaded):**
+  ```sh
+  make test-lib
+  ```
+- **All tests (recommended: increase ulimit before running):**
+  ```sh
+  ulimit -n 4096
+  make test-all
+  ```
+- **Integration tests (single-threaded):**
+  ```sh
+  make test-integration
+  ```
+- **Clean embedding model cache:**
+  ```sh
+  make clean-cache
+  ```
+
+### Troubleshooting
+
+- **If you see `Too many open files` errors:**
+  - Run `ulimit -n 4096` in your shell before running tests.
+  - You may also reduce test parallelism: `cargo test -- --test-threads=1`
+- **If you see `.lock` errors:**
+  - Run `make clean-cache` to remove cache and try again.
+- **Note:**
+  - The Makefile provides handy shortcuts for common tasks, but some OS or CI environments may require manual adjustment of file descriptor limits (`ulimit`).
+  - See each Makefile target for details.
+
 ---
 
 ## Task Management & Progress
