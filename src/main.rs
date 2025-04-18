@@ -240,7 +240,7 @@ impl MyHandler {
         let is_empty = entries.into_iter().next().is_none();
         if !is_empty {
             return Ok(CallToolResult::error(vec![Content::text(
-                "カレントディレクトリが空ではありません。新規ディレクトリでsetupを実行してください。"
+                "The current directory is not empty. Please run setup in a new directory."
             )]));
         }
         // 2. Run forge init . -t <repo>
