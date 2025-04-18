@@ -150,6 +150,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Handler for the MCP server logic.
 #[derive(Clone)]
 struct MyHandler {
     reference_service: Arc<dyn ReferenceService>,
@@ -166,6 +167,7 @@ struct SearchDocsArgs {
     limit: Option<usize>,
 }
 
+/// Arguments for the `mc_deploy` tool.
 // Define args for mc_deploy tool
 // Ensure JsonSchema is derived
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -174,6 +176,7 @@ struct McDeployArgs {
     broadcast: Option<bool>,
 }
 
+/// Arguments for the `mc_upgrade` tool.
 // Define args for mc_upgrade tool
 #[derive(Debug, Deserialize, JsonSchema)]
 struct McUpgradeArgs {
@@ -183,11 +186,15 @@ struct McUpgradeArgs {
 
 #[tool(tool_box)]
 impl MyHandler {
+    /// Creates a new handler instance.
     fn new(reference_service: Arc<dyn ReferenceService>, config: Arc<McpConfig>) -> Self {
         Self { reference_service, config }
     }
 
-    // Helper function to run forge script commands
+    /// Helper function to run forge script commands (deploy/upgrade).
+    /// Takes the script type ("deploy" or "upgrade") and broadcast flag.
+    /// Reads the script path from config, constructs and runs the `forge script` command,
+    /// and returns the result as a `CallToolResult`.
     async fn run_forge_script(&self, script_type: &str, broadcast: bool) -> Result<CallToolResult, McpError> {
         // --- Get script path from config based on type ---
         let script_path = match script_type {
@@ -285,6 +292,7 @@ impl MyHandler {
         }
     }
 
+    /// Runs `forge test` in the current workspace and returns the output.
     #[tool(description = "Run 'forge test' in the workspace.")]
     async fn mc_test(&self) -> Result<CallToolResult, McpError> {
         log::info!("Executing mc_test tool...");
@@ -321,6 +329,9 @@ impl MyHandler {
         }
     }
 
+    /// Performs semantic search over configured documentation sources.
+    /// Takes a natural language query and an optional limit.
+    /// Returns a JSON string containing a list of search results (`Vec<SearchResult>`).
     #[tool(description = "Semantic search over metacontract documents.")]
     async fn mc_search_docs_semantic(
         &self,
@@ -373,6 +384,9 @@ impl MyHandler {
         }
     }
 
+    /// Initializes a new Foundry project using the metacontract template.
+    /// This tool only works if the current directory is empty.
+    /// It runs `forge init . -t metacontract/template`.
     #[tool(
         description = "Initialize a new Foundry project using a template. Only works in an empty directory."
     )]
@@ -432,7 +446,8 @@ impl MyHandler {
         }
     }
 
-    // Placeholder for mc_deploy
+    /// Deploys contracts using the script specified in `mcp_config.toml` -> `[scripts].deploy`.
+    /// Supports dry-run (default) or actual broadcast (`broadcast: true`).
     #[tool(description = "Deploy contracts using a Foundry script.")]
     async fn mc_deploy(
         &self,
@@ -442,7 +457,8 @@ impl MyHandler {
         self.run_forge_script("deploy", broadcast).await
     }
 
-    // Placeholder for mc_upgrade
+    /// Upgrades contracts using the script specified in `mcp_config.toml` -> `[scripts].upgrade`.
+    /// Supports dry-run (default) or actual broadcast (`broadcast: true`).
     #[tool(description = "Upgrade contracts using a Foundry script.")]
     async fn mc_upgrade(&self, #[tool(aggr)] args: McUpgradeArgs) -> Result<CallToolResult, McpError> {
         let broadcast = args.broadcast.unwrap_or(false);

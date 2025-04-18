@@ -13,7 +13,7 @@ It enables AI-powered smart contract development workflows by exposing tools suc
 - **`mc_test`**: Run Foundry tests (`forge test`) in your workspace.
 - **`mc_setup`**: Initialize a new Foundry project using the `metacontract/template` (requires an empty directory).
 - **`mc_deploy`**: Deploy contracts using the script specified in `mcp_config.toml`. Supports dry-run (default) and broadcast mode (`broadcast: true` argument).
-- **`mc_upgrade`**: (Coming Soon) Upgrade contracts using the script specified in `mcp_config.toml`. Supports dry-run and broadcast mode.
+- **`mc_upgrade`**: Upgrade contracts using the script specified in `mcp_config.toml`. Supports dry-run and broadcast mode.
 - **`mc_lint`**: (Coming Soon) Lint project files for best practices and errors.
 
 ---
