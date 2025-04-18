@@ -401,19 +401,34 @@ impl MyHandler {
         } else {
             MC_TEMPLATE_REPO.to_string()
         };
-        let status = Command::new("forge")
+
+        // Use output() to capture stderr as well
+        let output_result = Command::new("forge")
             .args(["init", ".", "-t", &template_arg])
-            .status()
-            .map_err(|e| McpError::internal_error(format!("Failed to run forge: {e}"), None))?;
-        if status.success() {
-            Ok(CallToolResult::success(vec![Content::text(format!(
-                "Successfully initialized Foundry project with template: {MC_TEMPLATE_REPO}"
-            ))]))
-        } else {
-            Ok(CallToolResult::error(vec![Content::text(format!(
-                "forge init failed with exit code: {:?}",
-                status.code()
-            ))]))
+            .output(); // Use output() instead of status(), remove .await and ?
+
+        match output_result { // Use match to handle the Result<Output, Error>
+            Ok(output_result) => {
+                if output_result.status.success() {
+                    Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Successfully initialized Foundry project with template: {MC_TEMPLATE_REPO}"
+                    ))]))
+                } else {
+                    let stderr = String::from_utf8_lossy(&output_result.stderr).to_string();
+                    let err_msg = format!(
+                        "forge init failed with exit code: {:?}.\nStderr:\n{}",
+                        output_result.status.code(),
+                        stderr
+                    );
+                    log::error!("mc_setup forge init failed: {}", err_msg);
+                    Ok(CallToolResult::error(vec![Content::text(err_msg)]))
+                }
+            }
+            Err(e) => { // Handle the command execution error explicitly
+                let err_msg = format!("Failed to execute forge init command: {}. Make sure 'forge' is installed and in PATH.", e);
+                log::error!("mc_setup failed to execute forge: {}", e);
+                Ok(CallToolResult::error(vec![Content::text(err_msg)])) // Return CallToolResult::error
+            }
         }
     }
 
