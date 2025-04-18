@@ -15,3 +15,7 @@ prebuilt_index_path = "artifacts/prebuilt_index.jsonl.gz"
 # name = "user-docs"
 # source_type = "local"
 # path = "docs/user"
+
+[scripts]
+deploy = "scripts/Deploy.s.sol" # Default deploy script path
+# upgrade = "scripts/Upgrade.s.sol" # Example for upgrade script later

@@ -40,6 +40,9 @@ use log;
 use std::thread::sleep;
 use std::time::Duration;
 
+// Import McpConfig from the library crate
+use mc_mcp::config::McpConfig;
+
 const PREBUILT_INDEX_URL: &str =
     "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
 const PREBUILT_INDEX_DEST: &str = "artifacts/prebuilt_index.jsonl.gz";
@@ -130,7 +133,7 @@ async fn main() -> Result<()> {
     log::info!("Configured source indexing process started/completed.");
 
     // --- Start MCP Server ---
-    let handler = MyHandler { reference_service };
+    let handler = MyHandler { reference_service, config: Arc::new(config) };
     let transport = (stdin(), stdout());
 
     log::info!("Starting MCP server...");
@@ -150,6 +153,7 @@ async fn main() -> Result<()> {
 #[derive(Clone)]
 struct MyHandler {
     reference_service: Arc<dyn ReferenceService>,
+    config: Arc<McpConfig>,
 }
 
 const MAX_SEARCH_RESULTS: usize = 5;
@@ -162,10 +166,18 @@ struct SearchDocsArgs {
     limit: Option<usize>,
 }
 
+// Define args for mc_deploy tool
+// Ensure JsonSchema is derived
+#[derive(Debug, Deserialize, JsonSchema)]
+struct McDeployArgs {
+    #[schemars(description = "Whether to broadcast the transaction (execute actual deployment) or perform a dry run")]
+    broadcast: Option<bool>,
+}
+
 #[tool(tool_box)]
 impl MyHandler {
-    fn new(reference_service: Arc<dyn ReferenceService>) -> Self {
-        Self { reference_service }
+    fn new(reference_service: Arc<dyn ReferenceService>, config: Arc<McpConfig>) -> Self {
+        Self { reference_service, config }
     }
 
     #[tool(description = "Run 'forge test' in the workspace.")]
@@ -297,6 +309,102 @@ impl MyHandler {
                 "forge init failed with exit code: {:?}",
                 status.code()
             ))]))
+        }
+    }
+
+    // Placeholder for mc_deploy
+    #[tool(description = "Deploy contracts using a Foundry script.")]
+    async fn mc_deploy(
+        &self,
+        #[tool(aggr)] args: McDeployArgs,
+    ) -> Result<CallToolResult, McpError> {
+        // Suppress unused variable warning for now
+        let _ = args;
+
+        // --- Get script path from config ---
+        let script_path = match self.config.scripts.deploy.as_deref() {
+            Some(path) if !path.is_empty() => path.to_string(),
+            _ => {
+                log::error!("Deploy script path is not configured in mcp_config.toml ([scripts].deploy)");
+                return Ok(CallToolResult::error(vec![Content::text(
+                    "Deploy script path is not configured. Please set [scripts].deploy in mcp_config.toml"
+                )]));
+            }
+        };
+
+        // --- Determine if broadcast ---
+        let broadcast = args.broadcast.unwrap_or(false);
+
+        log::info!(
+            "Executing mc_deploy: script='{}', broadcast={}",
+            script_path,
+            broadcast
+        );
+
+        // --- Construct forge command ---
+        let mut command = Command::new("forge");
+        command.arg("script").arg(&script_path);
+        if broadcast {
+            command.arg("--broadcast");
+            // TODO: Add other necessary broadcast args like --rpc-url, --private-key?
+            // These should probably come from config or secure env vars.
+            log::warn!("Broadcast mode: Ensure RPC URL and private key are configured correctly (not implemented yet).")
+        } else {
+            // Dry run might need specific args too? e.g. --sig ?
+            log::info!("Dry run mode enabled.");
+        }
+
+        // --- Execute command ---
+        log::debug!("Running command: {:?}", command);
+        let output_result = command.output().await;
+
+        match output_result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                log::info!(
+                    "forge script finished. Status: {:?}, stdout len: {}, stderr len: {}",
+                    output.status.code(),
+                    stdout.len(),
+                    stderr.len()
+                );
+                log::debug!("forge stdout:\n{}", stdout);
+                log::debug!("forge stderr:\n{}", stderr);
+
+                let status_code = output
+                    .status
+                    .code()
+                    .map_or("N/A".to_string(), |c| c.to_string());
+
+                let result_title = if broadcast {
+                    "Forge Deploy Results"
+                } else {
+                    "Forge Dry Run Results"
+                };
+
+                let result_text = format!(
+                    "{}:\nScript: {}\nBroadcast: {}\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
+                    result_title,
+                    script_path,
+                    broadcast,
+                    status_code,
+                    stdout,
+                    stderr
+                );
+
+                if output.status.success() {
+                    log::info!("Forge script reported success.");
+                    Ok(CallToolResult::success(vec![Content::text(result_text)]))
+                } else {
+                    log::warn!("Forge script reported failure.");
+                    Ok(CallToolResult::error(vec![Content::text(result_text)]))
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to execute forge script command: {}", e);
+                let err_msg = format!("Failed to execute forge script command for '{}': {}. Make sure 'forge' is installed and in PATH.", script_path, e);
+                Ok(CallToolResult::error(vec![Content::text(err_msg)]))
+            }
         }
     }
 }
@@ -457,6 +565,25 @@ mod tests {
         let mock_service = Arc::new(MockReferenceService::default());
         let handler = MyHandler {
             reference_service: mock_service.clone(),
+            config: Arc::new(McpConfig {
+                scripts: mc_mcp::config::ScriptsConfig {
+                    deploy: Some("scripts/Deploy.s.sol".to_string()), // Default for tests
+                    upgrade: None,
+                },
+                ..Default::default()
+            }),
+        };
+        (handler, mock_service)
+    }
+
+    // Helper to setup mock handler with specific config
+    fn setup_mock_handler_with_config(
+        config: McpConfig,
+    ) -> (MyHandler, Arc<MockReferenceService>) {
+        let mock_service = Arc::new(MockReferenceService::default());
+        let handler = MyHandler {
+            reference_service: mock_service.clone(),
+            config: Arc::new(config), // Pass specific config
         };
         (handler, mock_service)
     }
@@ -708,6 +835,92 @@ mod tests {
         // Restore original directory
         std::env::set_current_dir(original_dir).unwrap();
     }
+
+    #[tokio::test]
+    async fn test_mc_deploy_dry_run_success() {
+        let expected_script_path = "scripts/Deploy.s.sol"; // Path from default mock config
+        let (handler, _mock_service) = setup_mock_handler(); // Uses default mock config
+
+        // Setup mock forge script to expect the default path
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let mock_bin_path = std::path::Path::new(manifest_dir).join("tests/mock_bin");
+        if !mock_bin_path.exists() {
+            std::fs::create_dir_all(&mock_bin_path).unwrap();
+        }
+        let forge_script_path_mock = mock_bin_path.join("forge");
+        let mock_script_content = format!(
+            "#!/bin/sh\nif [ \"$1\" = \"script\" ] && [ \"$2\" = \"{}\" ] && [ \"$#\" -eq 2 ]; then\n  echo \"Dry run successful for {}\n\" >&1
+  exit 0
+else
+  echo \"Unexpected mock forge call: $@\" >&2
+  exit 1
+fi\n",
+            expected_script_path, expected_script_path
+        );
+        #[cfg(unix)]
+        std::fs::write(&forge_script_path_mock, mock_script_content).unwrap();
+        #[cfg(windows)]
+        std::fs::write(&forge_script_path_mock, "@echo off\necho Dry run successful\nexit /b 0").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&forge_script_path_mock).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&forge_script_path_mock, perms).unwrap();
+        }
+
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let mock_bin_abs_path = mock_bin_path.canonicalize().unwrap();
+        std::env::set_var("PATH", format!("{}:{}", mock_bin_abs_path.display(), original_path));
+
+        let args = McDeployArgs {
+            broadcast: Some(false),
+        };
+
+        let result = handler.mc_deploy(args).await;
+
+        // --- Assertions --- //
+        assert!(result.is_ok(), "mc_deploy call failed: {:?}", result.err());
+        let call_result = result.unwrap();
+        assert_eq!(call_result.is_error, Some(false), "Expected success status");
+        assert!(!call_result.content.is_empty(), "Expected output content");
+
+        let output_text = &call_result.content[0].raw.as_text().expect("Expected text content").text;
+        assert!(output_text.contains("Dry Run Results"), "Output should mention dry run"); // Check title
+        assert!(output_text.contains(expected_script_path), "Output should mention script path");
+
+        // Cleanup
+        std::env::set_var("PATH", original_path);
+        std::fs::remove_file(forge_script_path_mock).ok();
+    }
+
+    // Add test for case where deploy script is not configured
+    #[tokio::test]
+    async fn test_mc_deploy_no_script_configured() {
+        // Create config with no deploy script path
+        let config = McpConfig {
+            scripts: mc_mcp::config::ScriptsConfig {
+                deploy: None, // Explicitly None
+                upgrade: None,
+            },
+            ..Default::default()
+        };
+        let (handler, _mock_service) = setup_mock_handler_with_config(config);
+
+        let args = McDeployArgs { broadcast: Some(false) };
+        let result = handler.mc_deploy(args).await;
+
+        assert!(result.is_ok()); // Tool call itself should succeed
+        let call_result = result.unwrap();
+        assert_eq!(call_result.is_error, Some(true)); // Should return an error status
+        assert!(!call_result.content.is_empty());
+        let error_text = &call_result.content[0].raw.as_text().expect("Expected text").text;
+        assert!(error_text.contains("Deploy script path is not configured"));
+    }
+
+    // TODO: Add tests for broadcast mode (success and failure)
+    // TODO: Add tests for dry run failure
 }
 
 fn ensure_qdrant_via_docker() -> Result<(), String> {

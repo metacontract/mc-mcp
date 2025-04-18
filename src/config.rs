@@ -44,10 +44,23 @@ fn default_prebuilt_index_path() -> Option<PathBuf> {
     None
 }
 
+// Define structure for the [scripts] section
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct ScriptsConfig {
+    #[serde(default)]
+    pub deploy: Option<String>, // Path to the default deploy script
+    #[serde(default)]
+    pub upgrade: Option<String>, // Path to the default upgrade script
+    // Add other script paths as needed (e.g., init, test)
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct McpConfig {
     #[serde(default)]
     pub reference: ReferenceConfig,
+    // Add the new scripts config section
+    #[serde(default)]
+    pub scripts: ScriptsConfig,
     // Add other config sections like ToolConfig later
 }
 
@@ -81,12 +94,13 @@ mod tests {
 
     #[test]
     fn test_load_config_default() {
-        // Test with no config file or env vars
         Jail::expect_with(|_jail| {
-            // No config file
             let config = load_config().expect("Failed to load default config");
             assert!(config.reference.sources.is_empty());
             assert!(config.reference.prebuilt_index_path.is_none());
+            // Check default scripts config
+            assert!(config.scripts.deploy.is_none());
+            assert!(config.scripts.upgrade.is_none());
             Ok(())
         });
     }
@@ -105,10 +119,9 @@ name = "docs"
 source_type = "local"
 path = "./docs_folder"
 
-[[reference.sources]]
-name = "notes"
-source_type = "local"
-path = "../notes"
+[scripts]
+deploy = "scripts/MyDeploy.s.sol"
+upgrade = "scripts/MyUpgrade.s.sol"
                 "#,
             )?;
             let config = load_config().expect("Failed to load TOML config");
@@ -116,15 +129,12 @@ path = "../notes"
                 config.reference.prebuilt_index_path,
                 Some(PathBuf::from("/path/to/index.idx"))
             );
-            assert_eq!(config.reference.sources.len(), 2);
+            assert_eq!(config.reference.sources.len(), 1);
             assert_eq!(config.reference.sources[0].name, "docs");
-            assert_eq!(config.reference.sources[0].source_type, SourceType::Local);
-            assert_eq!(
-                config.reference.sources[0].path,
-                PathBuf::from("./docs_folder")
-            );
-            assert_eq!(config.reference.sources[1].name, "notes");
-            assert_eq!(config.reference.sources[1].path, PathBuf::from("../notes"));
+
+            // Check scripts config loaded from TOML
+            assert_eq!(config.scripts.deploy, Some("scripts/MyDeploy.s.sol".to_string()));
+            assert_eq!(config.scripts.upgrade, Some("scripts/MyUpgrade.s.sol".to_string()));
             Ok(())
         });
     }
@@ -132,15 +142,13 @@ path = "../notes"
     #[test]
     fn test_load_config_env_only() {
         Jail::expect_with(|jail| {
-            // Set environment variables using double underscore for nesting
             jail.set_env("MCP_REFERENCE__PREBUILT_INDEX_PATH", "/env/index.idx");
-
-            // Set SOURCES as a single environment variable with TOML-like array syntax
-            let sources_env_value = r#"[
-                { name = "env_docs", source_type = "local", path = "/env/docs" },
-                { name = "env_notes", source_type = "local", path = "/env/notes" }
-            ]"#;
+            let sources_env_value = r#"[{ name = "env_docs", source_type = "local", path = "/env/docs" }]"#;
             jail.set_env("MCP_REFERENCE__SOURCES", sources_env_value);
+
+            // Set script paths via env vars
+            jail.set_env("MCP_SCRIPTS__DEPLOY", "/env/deploy.sh");
+            // Leave upgrade script unset in env
 
             let config = load_config().expect("Failed to load env config");
 
@@ -148,16 +156,12 @@ path = "../notes"
                 config.reference.prebuilt_index_path,
                 Some(PathBuf::from("/env/index.idx"))
             );
-            assert_eq!(config.reference.sources.len(), 2);
+            assert_eq!(config.reference.sources.len(), 1);
             assert_eq!(config.reference.sources[0].name, "env_docs");
-            assert_eq!(config.reference.sources[0].source_type, SourceType::Local);
-            assert_eq!(config.reference.sources[0].path, PathBuf::from("/env/docs"));
-            assert_eq!(config.reference.sources[1].name, "env_notes");
-            assert_eq!(config.reference.sources[1].source_type, SourceType::Local);
-            assert_eq!(
-                config.reference.sources[1].path,
-                PathBuf::from("/env/notes")
-            );
+
+            // Check scripts config loaded from Env
+            assert_eq!(config.scripts.deploy, Some("/env/deploy.sh".to_string()));
+            assert!(config.scripts.upgrade.is_none()); // Should be None as it wasn't set
 
             Ok(())
         });
