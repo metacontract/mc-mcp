@@ -259,7 +259,7 @@ impl MyHandler {
     #[tool(
         description = "Initialize a new Foundry project using a template. Only works in an empty directory."
     )]
-    pub async fn setup(&self) -> Result<CallToolResult, McpError> {
+    pub async fn mc_setup(&self) -> Result<CallToolResult, McpError> {
         use std::env;
         use std::fs;
         use std::process::Command;
@@ -374,8 +374,6 @@ impl ServerHandler for MyHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
-    use std::fs;
     use std::sync::{Arc, Mutex};
 
     // Use the library crate path for domain items in tests
@@ -389,7 +387,7 @@ mod tests {
     use rmcp::serde_json::{self, json};
     use futures::future::BoxFuture;
     use qdrant_client::qdrant::{PointStruct, ScoredPoint};
-    use rmcp::model::RawContent;
+    use rmcp::model::RawContent; // Import RawContent only
 
     // --- Mock ReferenceService --- //
     #[derive(Clone, Default)] // Add Default derive
@@ -631,43 +629,84 @@ mod tests {
 
     #[tokio::test]
     async fn test_setup_empty_dir() {
-        // ここでキャッシュパスをハードコード
-        std::env::set_var("MC_TEMPLATE_CACHE", "./.cache/mc-template");
+        let (handler, _) = setup_mock_handler();
+        // Create a temporary empty directory for the test
+        let temp_dir = tempfile::tempdir().unwrap();
 
-        let dir = tempfile::tempdir().unwrap();
-        let old_dir = env::current_dir().unwrap();
-        env::set_current_dir(&dir).unwrap();
-        let handler = MyHandler {
-            reference_service: Arc::new(MockReferenceService::default()),
-        };
-        let result = handler.setup().await.unwrap();
-        assert!(
-            result.content[0]
-                .raw
-                .as_text()
-                .map_or(false, |t| t.text.contains("Foundry project"))
-                || result.is_error == Some(true)
-        );
-        env::set_current_dir(old_dir).unwrap();
+        // Define path to mock_bin relative to project root *before* changing CWD
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let mock_bin_path = std::path::Path::new(manifest_dir).join("tests/mock_bin");
+
+        // Ensure mock_bin directory exists
+        if !mock_bin_path.exists() {
+            std::fs::create_dir_all(&mock_bin_path).unwrap(); // Use create_dir_all
+        }
+
+        // Create a mock forge script in mock_bin
+        let forge_script_path = mock_bin_path.join("forge");
+        #[cfg(unix)]
+        std::fs::write(&forge_script_path, "#!/bin/sh\nexit 0").unwrap();
+        #[cfg(windows)]
+        std::fs::write(&forge_script_path, "exit 0").unwrap();
+
+        // Make it executable on Unix-like systems
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&forge_script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&forge_script_path, perms).unwrap();
+        }
+
+        // Store original PATH and CWD
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let original_cwd = std::env::current_dir().unwrap();
+
+        // Change CWD to temp directory for the test logic
+        std::env::set_current_dir(temp_dir.path()).unwrap();
+
+        // Prepend mock_bin directory to PATH
+        let mock_bin_abs_path = mock_bin_path.canonicalize().unwrap();
+        std::env::set_var("PATH", format!("{}:{}", mock_bin_abs_path.display(), original_path));
+
+        // Run the setup tool
+        let result = handler.mc_setup().await;
+
+        // Assertions
+        assert!(result.is_ok());
+        let call_result = result.unwrap();
+        assert_eq!(call_result.is_error, Some(false), "Expected success");
+
+        // Cleanup
+        std::env::set_var("PATH", original_path);
+        std::env::set_current_dir(original_cwd).unwrap();
+
+        // Clean up mock script and dir (optional)
+        // std::fs::remove_file(forge_script_path).ok();
+        // std::fs::remove_dir_all(&mock_bin_path).ok();
     }
 
     #[tokio::test]
     async fn test_setup_non_empty_dir() {
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("dummy.txt");
-        fs::write(&file_path, "dummy").unwrap();
-        let old_dir = env::current_dir().unwrap();
-        env::set_current_dir(&dir).unwrap();
-        let handler = MyHandler {
-            reference_service: Arc::new(MockReferenceService::default()),
-        };
-        let result = handler.setup().await.unwrap();
-        assert!(result.is_error == Some(true));
-        assert!(result.content[0]
-            .raw
-            .as_text()
-            .map_or(false, |t| t.text.contains("not empty")));
-        env::set_current_dir(old_dir).unwrap();
+        let (handler, _) = setup_mock_handler();
+        // Create a temporary non-empty directory
+        let temp_dir = tempfile::tempdir().unwrap();
+        std::fs::write(temp_dir.path().join("dummy.txt"), "hello").unwrap();
+        let original_dir = std::env::current_dir().unwrap(); // Store original dir
+        std::env::set_current_dir(temp_dir.path()).unwrap();
+
+        let result = handler.mc_setup().await; // Updated call
+        assert!(result.is_ok());
+        let call_result = result.unwrap();
+        // Use is_error instead of status
+        assert_eq!(call_result.is_error, Some(true), "Expected error");
+        assert_eq!(call_result.content.len(), 1, "Expected one content item");
+        // Access text content correctly using a reference
+        let content_text = &call_result.content[0].raw.as_text().expect("Expected text content").text;
+        assert!(content_text.contains("The current directory is not empty"));
+
+        // Restore original directory
+        std::env::set_current_dir(original_dir).unwrap();
     }
 }
 
