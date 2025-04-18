@@ -11,11 +11,10 @@ It enables AI-powered smart contract development workflows by exposing tools suc
 
 - **`mc_search_docs`**: Perform semantic search over mc documentation and user-configured sources, returning structured JSON results.
 - **`mc_test`**: Run Foundry tests (`forge test`) in your workspace.
-- **`mc_search_docs`**: Semantic search over mc documentation and user-configured sources, returning structured JSON results.
-- **`mc_deploy`**: Deploy contracts (with `--broadcast`: production execution, without: dry-run simulation).
-- **`mc_upgrade`**: Upgrade contracts (with `--broadcast`: production execution, without: dry-run simulation).
-- **`mc_init`**: Initialize a new mc project or environment.
-- **`mc_lint`**: Lint project files for best practices and errors.
+- **`mc_setup`**: Initialize a new Foundry project using the `metacontract/template` (requires an empty directory).
+- **`mc_deploy`**: Deploy contracts using the script specified in `mcp_config.toml`. Supports dry-run (default) and broadcast mode (`broadcast: true` argument).
+- **`mc_upgrade`**: (Coming Soon) Upgrade contracts using the script specified in `mcp_config.toml`. Supports dry-run and broadcast mode.
+- **`mc_lint`**: (Coming Soon) Lint project files for best practices and errors.
 
 ---
 
@@ -117,6 +116,7 @@ See [RooCode's documentation](https://github.com/RooVetGit/Roo-Code) for details
 Create a file named `mcp_config.toml` in your project root:
 
 ```toml
+# Reference sources for semantic search
 [reference]
 prebuilt_index_path = "artifacts/prebuilt_index.jsonl.gz"
 
@@ -134,6 +134,11 @@ path = "docs/solidity"
 name = "user-docs"
 source_type = "local"
 path = "docs/user"
+
+# Default scripts used by tools
+[scripts]
+deploy = "scripts/Deploy.s.sol"  # Used by mc_deploy
+# upgrade = "scripts/Upgrade.s.sol" # Will be used by mc_upgrade
 ```
 
 - `prebuilt_index_path` ... (optional) Path to a prebuilt index (jsonl or gzipped jsonl). If set, it will be loaded and upserted into Qdrant on startup.
@@ -156,7 +161,7 @@ See also: [config.rs](src/config.rs) for the full config structure.
 ## Development
 
 - **TDD**: Test-Driven Development is enforced (unit/integration tests)
-- **Integration tests**: Use [testcontainers](https://github.com/testcontainers/testcontainers-rs) for Qdrant
+- **Integration tests**: Use [testcontainers](https://github.com/testcontainers/testcontainers-rs) for Qdrant, ensuring isolated and stable test environments.
 - **CI/CD**: GitHub Actions for build, test, and prebuilt index artifact management
 
 ## Testing & Troubleshooting
@@ -186,10 +191,12 @@ Some tests (especially integration tests and embedding-related tests) may fail d
 ### Troubleshooting
 
 - **If you see `Too many open files` errors:**
-  - Run `ulimit -n 4096` in your shell before running tests.
-  - You may also reduce test parallelism: `cargo test -- --test-threads=1`
-- **If you see `.lock` errors:**
-  - Run `make clean-cache` to remove cache and try again.
+  - Increase the file descriptor limit in your shell *before* running tests: `ulimit -n 4096`
+  - Run tests sequentially: `cargo test -- --test-threads=1` (or use `make test-lib` / `make test-integration`)
+- **If you see `.lock` errors (related to embedding model cache):**
+  - Clean the cache: `make clean-cache`
+- **If tests involving `forge` commands fail unexpectedly:**
+  - Ensure the mock script setup within the specific test file (`src/main.rs` tests) is correct.
 - **Note:**
   - The Makefile provides handy shortcuts for common tasks, but some OS or CI environments may require manual adjustment of file descriptor limits (`ulimit`).
   - See each Makefile target for details.
