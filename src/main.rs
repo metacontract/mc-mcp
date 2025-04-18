@@ -187,6 +187,104 @@ impl MyHandler {
         Self { reference_service, config }
     }
 
+    // Helper function to run forge script commands
+    async fn run_forge_script(&self, script_type: &str, broadcast: bool) -> Result<CallToolResult, McpError> {
+        // --- Get script path from config based on type ---
+        let script_path = match script_type {
+            "deploy" => self.config.scripts.deploy.as_deref(),
+            "upgrade" => self.config.scripts.upgrade.as_deref(),
+            _ => {
+                log::error!("Invalid script type provided to helper: {}", script_type);
+                return Err(McpError::internal_error("Invalid script type", None)); // Internal error
+            }
+        };
+
+        let script_path = match script_path {
+            Some(path) if !path.is_empty() => path.to_string(),
+            _ => {
+                // Capitalize only the first letter of script_type
+                let type_capitalized = script_type.chars().next().map(|c| c.to_uppercase().collect::<String>() + &script_type[1..]).unwrap_or_else(|| script_type.to_string());
+                let error_msg = format!("{} script path is not configured in mcp_config.toml ([scripts].{})", type_capitalized, script_type);
+                log::error!("{}", error_msg);
+                return Ok(CallToolResult::error(vec![Content::text(error_msg)]));
+            }
+        };
+
+        log::info!(
+            "Executing {}: script='{}', broadcast={}",
+            script_type,
+            script_path,
+            broadcast
+        );
+
+        // --- Construct forge command ---
+        let mut command = Command::new("forge");
+        command.arg("script").arg(&script_path);
+        if broadcast {
+            command.arg("--broadcast");
+            // TODO: Add other necessary broadcast args like --rpc-url, --private-key?
+            log::warn!("Broadcast mode: Ensure RPC URL and private key are configured correctly (not implemented yet).")
+        } else {
+            log::info!("Dry run mode enabled.");
+        }
+
+        // --- Execute command ---
+        log::debug!("Running command: {:?}", command);
+        let output_result = command.output().await;
+
+        match output_result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                log::info!(
+                    "forge script finished. Status: {:?}, stdout len: {}, stderr len: {}",
+                    output.status.code(),
+                    stdout.len(),
+                    stderr.len()
+                );
+                log::debug!("forge stdout:\n{}", stdout);
+                log::debug!("forge stderr:\n{}", stderr);
+
+                let status_code = output
+                    .status
+                    .code()
+                    .map_or("N/A".to_string(), |c| c.to_string());
+
+                // Determine title based on script type and broadcast status
+                let result_title = match (script_type, broadcast) {
+                    ("deploy", true) => "Forge Deploy Results",
+                    ("deploy", false) => "Forge Deploy Dry Run Results",
+                    ("upgrade", true) => "Forge Upgrade Results",
+                    ("upgrade", false) => "Forge Upgrade Dry Run Results",
+                    _ => "Forge Script Results", // Fallback
+                };
+
+                let result_text = format!(
+                    "{}:\nScript: {}\nBroadcast: {}\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
+                    result_title,
+                    script_path,
+                    broadcast,
+                    status_code,
+                    stdout,
+                    stderr
+                );
+
+                if output.status.success() {
+                    log::info!("Forge script reported success.");
+                    Ok(CallToolResult::success(vec![Content::text(result_text)]))
+                } else {
+                    log::warn!("Forge script reported failure.");
+                    Ok(CallToolResult::error(vec![Content::text(result_text)]))
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to execute forge script command: {}", e);
+                let err_msg = format!("Failed to execute forge script command for '{}': {}. Make sure 'forge' is installed and in PATH.", script_path, e);
+                Ok(CallToolResult::error(vec![Content::text(err_msg)]))
+            }
+        }
+    }
+
     #[tool(description = "Run 'forge test' in the workspace.")]
     async fn mc_test(&self) -> Result<CallToolResult, McpError> {
         log::info!("Executing mc_test tool...");
@@ -325,184 +423,15 @@ impl MyHandler {
         &self,
         #[tool(aggr)] args: McDeployArgs,
     ) -> Result<CallToolResult, McpError> {
-        // Suppress unused variable warning for now
-        let _ = args;
-
-        // --- Get script path from config ---
-        let script_path = match self.config.scripts.deploy.as_deref() {
-            Some(path) if !path.is_empty() => path.to_string(),
-            _ => {
-                log::error!("Deploy script path is not configured in mcp_config.toml ([scripts].deploy)");
-                return Ok(CallToolResult::error(vec![Content::text(
-                    "Deploy script path is not configured. Please set [scripts].deploy in mcp_config.toml"
-                )]));
-            }
-        };
-
-        // --- Determine if broadcast ---
         let broadcast = args.broadcast.unwrap_or(false);
-
-        log::info!(
-            "Executing mc_deploy: script='{}', broadcast={}",
-            script_path,
-            broadcast
-        );
-
-        // --- Construct forge command ---
-        let mut command = Command::new("forge");
-        command.arg("script").arg(&script_path);
-        if broadcast {
-            command.arg("--broadcast");
-            // TODO: Add other necessary broadcast args like --rpc-url, --private-key?
-            // These should probably come from config or secure env vars.
-            log::warn!("Broadcast mode: Ensure RPC URL and private key are configured correctly (not implemented yet).")
-        } else {
-            // Dry run might need specific args too? e.g. --sig ?
-            log::info!("Dry run mode enabled.");
-        }
-
-        // --- Execute command ---
-        log::debug!("Running command: {:?}", command);
-        let output_result = command.output().await;
-
-        match output_result {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                log::info!(
-                    "forge script finished. Status: {:?}, stdout len: {}, stderr len: {}",
-                    output.status.code(),
-                    stdout.len(),
-                    stderr.len()
-                );
-                log::debug!("forge stdout:\n{}", stdout);
-                log::debug!("forge stderr:\n{}", stderr);
-
-                let status_code = output
-                    .status
-                    .code()
-                    .map_or("N/A".to_string(), |c| c.to_string());
-
-                let result_title = if broadcast {
-                    "Forge Deploy Results"
-                } else {
-                    "Forge Dry Run Results"
-                };
-
-                let result_text = format!(
-                    "{}:\nScript: {}\nBroadcast: {}\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
-                    result_title,
-                    script_path,
-                    broadcast,
-                    status_code,
-                    stdout,
-                    stderr
-                );
-
-                if output.status.success() {
-                    log::info!("Forge script reported success.");
-                    Ok(CallToolResult::success(vec![Content::text(result_text)]))
-                } else {
-                    log::warn!("Forge script reported failure.");
-                    Ok(CallToolResult::error(vec![Content::text(result_text)]))
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to execute forge script command: {}", e);
-                let err_msg = format!("Failed to execute forge script command for '{}': {}. Make sure 'forge' is installed and in PATH.", script_path, e);
-                Ok(CallToolResult::error(vec![Content::text(err_msg)]))
-            }
-        }
+        self.run_forge_script("deploy", broadcast).await
     }
 
     // Placeholder for mc_upgrade
     #[tool(description = "Upgrade contracts using a Foundry script.")]
     async fn mc_upgrade(&self, #[tool(aggr)] args: McUpgradeArgs) -> Result<CallToolResult, McpError> {
-        // --- Get script path from config ---
-        let script_path = match self.config.scripts.upgrade.as_deref() { // Use upgrade script path
-            Some(path) if !path.is_empty() => path.to_string(),
-            _ => {
-                log::error!("Upgrade script path is not configured in mcp_config.toml ([scripts].upgrade)");
-                return Ok(CallToolResult::error(vec![Content::text(
-                    "Upgrade script path is not configured. Please set [scripts].upgrade in mcp_config.toml"
-                )]));
-            }
-        };
-
-        // --- Determine if broadcast ---
         let broadcast = args.broadcast.unwrap_or(false);
-
-        log::info!(
-            "Executing mc_upgrade: script='{}', broadcast={}", // Log upgrade
-            script_path,
-            broadcast
-        );
-
-        // --- Construct forge command ---
-        let mut command = Command::new("forge");
-        command.arg("script").arg(&script_path);
-        if broadcast {
-            command.arg("--broadcast");
-            // TODO: Add other necessary broadcast args like --rpc-url, --private-key?
-            // These should probably come from config or secure env vars.
-            log::warn!("Broadcast mode: Ensure RPC URL and private key are configured correctly (not implemented yet).")
-        } else {
-            // Dry run might need specific args too? e.g. --sig ?
-            log::info!("Dry run mode enabled.");
-        }
-
-        // --- Execute command ---
-        log::debug!("Running command: {:?}", command);
-        let output_result = command.output().await;
-
-        match output_result {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                log::info!(
-                    "forge script finished. Status: {:?}, stdout len: {}, stderr len: {}",
-                    output.status.code(),
-                    stdout.len(),
-                    stderr.len()
-                );
-                log::debug!("forge stdout:\n{}", stdout);
-                log::debug!("forge stderr:\n{}", stderr);
-
-                let status_code = output
-                    .status
-                    .code()
-                    .map_or("N/A".to_string(), |c| c.to_string());
-
-                let result_title = if broadcast {
-                    "Forge Upgrade Results" // Title for upgrade
-                } else {
-                    "Forge Upgrade Dry Run Results" // Title for upgrade dry run
-                };
-
-                let result_text = format!(
-                    "{}:\nScript: {}\nBroadcast: {}\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
-                    result_title,
-                    script_path,
-                    broadcast,
-                    status_code,
-                    stdout,
-                    stderr
-                );
-
-                if output.status.success() {
-                    log::info!("Forge script reported success.");
-                    Ok(CallToolResult::success(vec![Content::text(result_text)]))
-                } else {
-                    log::warn!("Forge script reported failure.");
-                    Ok(CallToolResult::error(vec![Content::text(result_text)]))
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to execute forge script command: {}", e);
-                let err_msg = format!("Failed to execute forge script command for '{}': {}. Make sure 'forge' is installed and in PATH.", script_path, e);
-                Ok(CallToolResult::error(vec![Content::text(err_msg)]))
-            }
-        }
+        self.run_forge_script("upgrade", broadcast).await
     }
 }
 
