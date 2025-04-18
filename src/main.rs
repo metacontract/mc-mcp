@@ -1295,6 +1295,190 @@ fi
         assert!(error_text.contains("Upgrade script path is not configured"));
     }
 
+    // Add test for upgrade dry run failure
+    #[tokio::test]
+    async fn test_mc_upgrade_dry_run_failure() {
+        let manifest_dir_check = env!("CARGO_MANIFEST_DIR");
+        std::env::set_current_dir(manifest_dir_check).expect("Failed to set current dir to project root");
+
+        let expected_script_path = "scripts/Upgrade.s.sol";
+        let (handler, _mock_service) = setup_mock_handler();
+
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let mock_bin_path = std::path::Path::new(manifest_dir).join("tests/mock_bin");
+        if !mock_bin_path.exists() {
+            std::fs::create_dir_all(&mock_bin_path).unwrap();
+        }
+        let forge_script_path_mock = mock_bin_path.join("forge");
+        let mock_script_content = format!(
+            r#"#!/bin/sh
+if [ "$1" = "script" ] && [ "$2" = "{}" ] && [ "$#" -eq 2 ]; then
+  echo "Error: Upgrade dry run script failed simulation." >&2 # Output to stderr
+  exit 1 # Exit with error code
+else
+  echo "Unexpected mock forge call in upgrade dry run failure test: $@" >&2
+  exit 1
+fi
+"#,
+            expected_script_path
+        );
+        #[cfg(unix)]
+        std::fs::write(&forge_script_path_mock, mock_script_content).unwrap();
+        #[cfg(windows)] // Basic windows version
+        std::fs::write(&forge_script_path_mock, "@echo off\necho Error: Upgrade dry run script failed simulation. >&2\nexit /b 1").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&forge_script_path_mock).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&forge_script_path_mock, perms).unwrap();
+        }
+
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let mock_bin_abs_path = mock_bin_path.canonicalize().unwrap();
+        std::env::set_var("PATH", format!("{}:{}", mock_bin_abs_path.display(), original_path));
+
+        let args = McUpgradeArgs { broadcast: Some(false) }; // Dry run
+        let result = handler.mc_upgrade(args).await;
+
+        assert!(result.is_ok());
+        let call_result = result.unwrap();
+        assert_eq!(call_result.is_error, Some(true), "Expected error status for failed upgrade dry run");
+        assert!(!call_result.content.is_empty());
+
+        let output_text = &call_result.content[0].raw.as_text().expect("Expected text").text;
+        assert!(output_text.contains("Forge Upgrade Dry Run Results"), "Should indicate upgrade dry run results title");
+        assert!(output_text.contains("Exit Code: 1"), "Should show exit code 1");
+        assert!(output_text.contains("Error: Upgrade dry run script failed simulation."), "Should contain stderr message");
+
+        std::env::set_var("PATH", original_path);
+    }
+
+    // Add test for upgrade broadcast success
+    #[tokio::test]
+    async fn test_mc_upgrade_broadcast_success() {
+        // Ensure we are in the project root directory before starting the test
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        std::env::set_current_dir(manifest_dir).expect("Failed to set current dir to project root");
+
+        let expected_script_path = "scripts/Upgrade.s.sol";
+        let (handler, _mock_service) = setup_mock_handler();
+
+        let mock_bin_path = std::path::Path::new(manifest_dir).join("tests/mock_bin");
+        if !mock_bin_path.exists() {
+            std::fs::create_dir_all(&mock_bin_path).expect("Failed to create mock_bin dir");
+        }
+        let forge_script_on_mock_bin = mock_bin_path.join("forge");
+
+        let mock_script_content_broadcast = format!(
+            r#"#!/bin/sh
+if [ "$1" = "script" ] && [ "$2" = "{}" ] && [ "$3" = "--broadcast" ] && [ "$#" -eq 3 ]; then
+  echo "Simulating upgrade broadcast..."
+  echo "Transaction Hash: 0xmockhashupgrade" # Mock output
+  exit 0
+else
+  echo "Unexpected mock forge call in upgrade broadcast test: $@" >&2
+  exit 1
+fi
+"#,
+            expected_script_path
+        );
+        #[cfg(unix)]
+        std::fs::write(&forge_script_on_mock_bin, mock_script_content_broadcast).expect("Failed to write mock upgrade broadcast script");
+        #[cfg(windows)]
+        std::fs::write(&forge_script_on_mock_bin, "@echo off\necho Transaction Hash: 0xmockhashupgrade\nexit /b 0").expect("Failed to write mock upgrade broadcast script (win)");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = std::fs::metadata(&forge_script_on_mock_bin).expect("Failed to get metadata for mock script");
+            let mut perms = metadata.permissions();
+            perms.set_mode(perms.mode() | 0o111);
+            std::fs::set_permissions(&forge_script_on_mock_bin, perms).expect("Failed to set permissions on mock script");
+        }
+
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let mock_bin_abs_path = mock_bin_path.canonicalize().unwrap();
+        std::env::set_var("PATH", format!("{}:{}", mock_bin_abs_path.display(), original_path));
+
+        let args = McUpgradeArgs { broadcast: Some(true) }; // Broadcast
+        let result = handler.mc_upgrade(args).await;
+
+        assert!(result.is_ok(), "mc_upgrade broadcast call failed: {:?}", result.err());
+        let call_result = result.unwrap();
+        assert_eq!(call_result.is_error, Some(false), "Expected success status for upgrade broadcast");
+        assert!(!call_result.content.is_empty());
+
+        let output_text = &call_result.content[0].raw.as_text().expect("Expected text").text;
+        assert!(output_text.contains("Forge Upgrade Results"), "Should indicate upgrade results title");
+        assert!(output_text.contains(&format!("Script: {}", expected_script_path)), "Should mention script path");
+        assert!(output_text.contains("Broadcast: true"), "Should mention broadcast true");
+        assert!(output_text.contains("Transaction Hash: 0xmockhashupgrade"), "Should contain mock upgrade tx hash");
+
+        std::env::set_var("PATH", original_path);
+    }
+
+    // Add test for upgrade broadcast failure
+    #[tokio::test]
+    async fn test_mc_upgrade_broadcast_failure() {
+        let manifest_dir_check = env!("CARGO_MANIFEST_DIR");
+        std::env::set_current_dir(manifest_dir_check).expect("Failed to set current dir to project root");
+
+        let expected_script_path = "scripts/Upgrade.s.sol";
+        let (handler, _mock_service) = setup_mock_handler();
+
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let mock_bin_path = std::path::Path::new(manifest_dir).join("tests/mock_bin");
+        if !mock_bin_path.exists() {
+            std::fs::create_dir_all(&mock_bin_path).unwrap();
+        }
+        let forge_script_path_mock = mock_bin_path.join("forge");
+        let mock_script_content = format!(
+            r#"#!/bin/sh
+if [ "$1" = "script" ] && [ "$2" = "{}" ] && [ "$3" = "--broadcast" ] && [ "$#" -eq 3 ]; then
+  echo "Error: Upgrade broadcast failed due to gas estimation." >&2 # Output to stderr
+  exit 1 # Exit with error code
+else
+  echo "Unexpected mock forge call in upgrade broadcast failure test: $@" >&2
+  exit 1
+fi
+"#,
+            expected_script_path
+        );
+        #[cfg(unix)]
+        std::fs::write(&forge_script_path_mock, mock_script_content).unwrap();
+        #[cfg(windows)] // Basic windows version
+        std::fs::write(&forge_script_path_mock, "@echo off\necho Error: Upgrade broadcast failed due to gas estimation. >&2\nexit /b 1").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&forge_script_path_mock).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&forge_script_path_mock, perms).unwrap();
+        }
+
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let mock_bin_abs_path = mock_bin_path.canonicalize().unwrap();
+        std::env::set_var("PATH", format!("{}:{}", mock_bin_abs_path.display(), original_path));
+
+        let args = McUpgradeArgs { broadcast: Some(true) }; // Broadcast
+        let result = handler.mc_upgrade(args).await;
+
+        assert!(result.is_ok());
+        let call_result = result.unwrap();
+        assert_eq!(call_result.is_error, Some(true), "Expected error status for failed upgrade broadcast");
+        assert!(!call_result.content.is_empty());
+
+        let output_text = &call_result.content[0].raw.as_text().expect("Expected text").text;
+        assert!(output_text.contains("Forge Upgrade Results"), "Should indicate upgrade results title");
+        assert!(output_text.contains("Exit Code: 1"), "Should show exit code 1");
+        assert!(output_text.contains("Error: Upgrade broadcast failed due to gas estimation."), "Should contain stderr message");
+
+        std::env::set_var("PATH", original_path);
+    }
+
 }
 
 fn ensure_qdrant_via_docker() -> Result<(), String> {
