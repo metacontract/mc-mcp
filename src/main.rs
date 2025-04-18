@@ -174,6 +174,13 @@ struct McDeployArgs {
     broadcast: Option<bool>,
 }
 
+// Define args for mc_upgrade tool
+#[derive(Debug, Deserialize, JsonSchema)]
+struct McUpgradeArgs {
+    #[schemars(description = "Whether to broadcast the transaction (execute actual upgrade) or perform a dry run")]
+    broadcast: Option<bool>,
+}
+
 #[tool(tool_box)]
 impl MyHandler {
     fn new(reference_service: Arc<dyn ReferenceService>, config: Arc<McpConfig>) -> Self {
@@ -407,6 +414,96 @@ impl MyHandler {
             }
         }
     }
+
+    // Placeholder for mc_upgrade
+    #[tool(description = "Upgrade contracts using a Foundry script.")]
+    async fn mc_upgrade(&self, #[tool(aggr)] args: McUpgradeArgs) -> Result<CallToolResult, McpError> {
+        // --- Get script path from config ---
+        let script_path = match self.config.scripts.upgrade.as_deref() { // Use upgrade script path
+            Some(path) if !path.is_empty() => path.to_string(),
+            _ => {
+                log::error!("Upgrade script path is not configured in mcp_config.toml ([scripts].upgrade)");
+                return Ok(CallToolResult::error(vec![Content::text(
+                    "Upgrade script path is not configured. Please set [scripts].upgrade in mcp_config.toml"
+                )]));
+            }
+        };
+
+        // --- Determine if broadcast ---
+        let broadcast = args.broadcast.unwrap_or(false);
+
+        log::info!(
+            "Executing mc_upgrade: script='{}', broadcast={}", // Log upgrade
+            script_path,
+            broadcast
+        );
+
+        // --- Construct forge command ---
+        let mut command = Command::new("forge");
+        command.arg("script").arg(&script_path);
+        if broadcast {
+            command.arg("--broadcast");
+            // TODO: Add other necessary broadcast args like --rpc-url, --private-key?
+            // These should probably come from config or secure env vars.
+            log::warn!("Broadcast mode: Ensure RPC URL and private key are configured correctly (not implemented yet).")
+        } else {
+            // Dry run might need specific args too? e.g. --sig ?
+            log::info!("Dry run mode enabled.");
+        }
+
+        // --- Execute command ---
+        log::debug!("Running command: {:?}", command);
+        let output_result = command.output().await;
+
+        match output_result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                log::info!(
+                    "forge script finished. Status: {:?}, stdout len: {}, stderr len: {}",
+                    output.status.code(),
+                    stdout.len(),
+                    stderr.len()
+                );
+                log::debug!("forge stdout:\n{}", stdout);
+                log::debug!("forge stderr:\n{}", stderr);
+
+                let status_code = output
+                    .status
+                    .code()
+                    .map_or("N/A".to_string(), |c| c.to_string());
+
+                let result_title = if broadcast {
+                    "Forge Upgrade Results" // Title for upgrade
+                } else {
+                    "Forge Upgrade Dry Run Results" // Title for upgrade dry run
+                };
+
+                let result_text = format!(
+                    "{}:\nScript: {}\nBroadcast: {}\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
+                    result_title,
+                    script_path,
+                    broadcast,
+                    status_code,
+                    stdout,
+                    stderr
+                );
+
+                if output.status.success() {
+                    log::info!("Forge script reported success.");
+                    Ok(CallToolResult::success(vec![Content::text(result_text)]))
+                } else {
+                    log::warn!("Forge script reported failure.");
+                    Ok(CallToolResult::error(vec![Content::text(result_text)]))
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to execute forge script command: {}", e);
+                let err_msg = format!("Failed to execute forge script command for '{}': {}. Make sure 'forge' is installed and in PATH.", script_path, e);
+                Ok(CallToolResult::error(vec![Content::text(err_msg)]))
+            }
+        }
+    }
 }
 
 #[tool(tool_box)]
@@ -568,7 +665,7 @@ mod tests {
             config: Arc::new(McpConfig {
                 scripts: mc_mcp::config::ScriptsConfig {
                     deploy: Some("scripts/Deploy.s.sol".to_string()), // Default for tests
-                    upgrade: None,
+                    upgrade: Some("scripts/Upgrade.s.sol".to_string()), // Default upgrade script for tests
                 },
                 ..Default::default()
             }),
@@ -1045,6 +1142,101 @@ exit /b 0").expect("Failed to write mock broadcast script (win)");
 
     // TODO: Add tests for broadcast mode failure
     // TODO: Add tests for dry run failure
+
+    // --- mc_upgrade Tests --- //
+
+    #[tokio::test]
+    async fn test_mc_upgrade_dry_run_success() {
+        // Ensure we are in the project root directory before starting the test
+        let manifest_dir_check = env!("CARGO_MANIFEST_DIR");
+        std::env::set_current_dir(manifest_dir_check).expect("Failed to set current dir to project root");
+
+        let expected_script_path = "scripts/Upgrade.s.sol"; // Path from default mock config
+        let (handler, _mock_service) = setup_mock_handler(); // Uses default mock config
+
+        // Setup mock forge script to expect the default path for upgrade dry run
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let mock_bin_path = std::path::Path::new(manifest_dir).join("tests/mock_bin");
+        if !mock_bin_path.exists() {
+            std::fs::create_dir_all(&mock_bin_path).unwrap();
+        }
+        let forge_script_path_mock = mock_bin_path.join("forge");
+        let mock_script_content = format!(
+            r#"#!/bin/sh
+if [ "$1" = "script" ] && [ "$2" = "{}" ] && [ "$#" -eq 2 ]; then
+  echo "Upgrade Dry run successful for {}"
+  exit 0
+else
+  echo "Unexpected mock forge call in upgrade dry run test: $@" >&2
+  exit 1
+fi
+"#,
+            expected_script_path, expected_script_path
+        );
+        #[cfg(unix)]
+        std::fs::write(&forge_script_path_mock, mock_script_content).unwrap();
+        #[cfg(windows)]
+        std::fs::write(&forge_script_path_mock, "@echo off\necho Upgrade Dry run successful\nexit /b 0").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&forge_script_path_mock).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&forge_script_path_mock, perms).unwrap();
+        }
+
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let mock_bin_abs_path = mock_bin_path.canonicalize().unwrap();
+        std::env::set_var("PATH", format!("{}:{}", mock_bin_abs_path.display(), original_path));
+
+        let args = McUpgradeArgs {
+            broadcast: Some(false), // Dry run
+        };
+
+        let result = handler.mc_upgrade(args).await;
+
+        // --- Assertions --- //
+        assert!(result.is_ok(), "mc_upgrade call failed: {:?}", result.err());
+        let call_result = result.unwrap();
+        assert_eq!(call_result.is_error, Some(false), "Expected success status"); // This will fail initially
+        assert!(!call_result.content.is_empty(), "Expected output content");
+
+        let output_text = &call_result.content[0].raw.as_text().expect("Expected text content").text;
+        assert!(output_text.contains("Upgrade Dry Run Results"), "Output should mention upgrade dry run");
+        assert!(output_text.contains(expected_script_path), "Output should mention script path");
+
+        // Cleanup
+        std::env::set_var("PATH", original_path);
+    }
+
+    #[tokio::test]
+    async fn test_mc_upgrade_no_script_configured() {
+        // Ensure we are in the project root directory before starting the test
+        let manifest_dir_check = env!("CARGO_MANIFEST_DIR");
+        std::env::set_current_dir(manifest_dir_check).expect("Failed to set current dir to project root");
+
+        // Create config with no upgrade script path
+        let config = McpConfig {
+            scripts: mc_mcp::config::ScriptsConfig {
+                deploy: Some("scripts/Deploy.s.sol".to_string()),
+                upgrade: None, // Explicitly None for upgrade
+            },
+            ..Default::default()
+        };
+        let (handler, _mock_service) = setup_mock_handler_with_config(config);
+
+        let args = McUpgradeArgs { broadcast: Some(false) };
+        let result = handler.mc_upgrade(args).await;
+
+        assert!(result.is_ok()); // Tool call itself should succeed
+        let call_result = result.unwrap();
+        assert_eq!(call_result.is_error, Some(true)); // Should return an error status
+        assert!(!call_result.content.is_empty());
+        let error_text = &call_result.content[0].raw.as_text().expect("Expected text").text;
+        assert!(error_text.contains("Upgrade script path is not configured"));
+    }
+
 }
 
 fn ensure_qdrant_via_docker() -> Result<(), String> {
