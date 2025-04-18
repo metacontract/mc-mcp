@@ -1,45 +1,26 @@
-use std::time::Duration;
-use uuid::Uuid;
 use anyhow::Result;
-use tokio;
-use testcontainers::{GenericImage, ContainerAsync, ImageExt};
-use testcontainers::core::{WaitFor, IntoContainerPort};
-use testcontainers::runners::AsyncRunner;
-use serial_test::serial;
-use mc_mcp::infrastructure::vector_db::{VectorDb, DocumentToUpsert};
+use mc_mcp::infrastructure::vector_db::{DocumentToUpsert, VectorDb};
 use mc_mcp::qdrant_client::Qdrant;
 use mc_mcp::VectorRepository;
+use std::time::Duration;
+use testcontainers::core::{IntoContainerPort, WaitFor};
+use testcontainers::runners::AsyncRunner;
+use testcontainers::{ContainerAsync, GenericImage, ImageExt};
+use tokio;
 use tokio::sync::OnceCell;
+use uuid::Uuid;
 
-static QDRANT_CONTAINER: OnceCell<ContainerAsync<GenericImage>> = OnceCell::const_new();
-static QDRANT_URL: OnceCell<String> = OnceCell::const_new();
-
-async fn get_qdrant_url() -> Result<&'static str> {
-    let _container = QDRANT_CONTAINER.get_or_try_init(|| async {
-        println!("Initializing Qdrant container for tests...");
-        let image = GenericImage::new("qdrant/qdrant", "latest")
-            .with_wait_for(WaitFor::message_on_stdout("Actix runtime found; starting in Actix runtime"))
-            .with_exposed_port(6334u16.tcp())
-            .with_startup_timeout(Duration::from_secs(900));
-        let container = image.start().await?;
-        println!("Qdrant container started.");
-        Ok::<_, anyhow::Error>(container)
-    }).await?;
-    let url = QDRANT_URL.get_or_try_init(|| async {
-        println!("Getting Qdrant URL...");
-        let container = QDRANT_CONTAINER.get().expect("Container should be initialized");
-        let http_port = container.get_host_port_ipv4(6334).await?;
-        let qdrant_url = format!("http://localhost:{}", http_port);
-        println!("Qdrant container ready at: {}", qdrant_url);
-        Ok::<_, anyhow::Error>(qdrant_url)
-    }).await?;
-    Ok(url.as_str())
+// Pseudo Qdrant URL for testing
+async fn get_qdrant_url() -> anyhow::Result<String> {
+    Ok("http://localhost:6334".to_string())
 }
 
 #[tokio::test]
 async fn test_vector_db_new_and_initialize() -> Result<()> {
     let qdrant_url = get_qdrant_url().await?;
-    let client = Qdrant::from_url(qdrant_url).build().expect("Failed to create Qdrant client");
+    let client = Qdrant::from_url(&qdrant_url)
+        .build()
+        .expect("Failed to create Qdrant client");
     let vector_db = VectorDb::new(Box::new(client), "test_collection_init".to_string(), 3)?;
     vector_db.initialize_collection().await?;
     vector_db.initialize_collection().await?;
@@ -49,7 +30,7 @@ async fn test_vector_db_new_and_initialize() -> Result<()> {
 #[tokio::test]
 async fn test_vector_db_upsert_and_search() -> Result<()> {
     let qdrant_url = get_qdrant_url().await?;
-    let client = Qdrant::from_url(qdrant_url).build()?;
+    let client = Qdrant::from_url(&qdrant_url).build()?;
     let collection_name = format!("test_coll_{}", Uuid::new_v4());
     let vector_size: u64 = 3;
     let vector_db = VectorDb::new(Box::new(client), collection_name.clone(), vector_size)?;
@@ -89,19 +70,33 @@ async fn test_vector_db_upsert_and_search() -> Result<()> {
     assert_eq!(top_result.file_path, "file1.md");
     assert_eq!(top_result.source, Some("source_A".to_string()));
     assert_eq!(top_result.content_chunk, "This is chunk 1 from source A.");
-    assert_eq!(top_result.metadata, Some(serde_json::json!({ "section": "intro" })));
+    assert_eq!(
+        top_result.metadata,
+        Some(serde_json::json!({ "section": "intro" }))
+    );
     let second_result = &results[1];
     assert!(second_result.score > 0.5);
     assert_eq!(second_result.file_path, "file1.md");
     assert_eq!(second_result.source, Some("source_A".to_string()));
-    assert_eq!(second_result.content_chunk, "This is chunk 2 from source A.");
-    assert_eq!(second_result.metadata, Some(serde_json::json!({ "section": "details" })));
+    assert_eq!(
+        second_result.content_chunk,
+        "This is chunk 2 from source A."
+    );
+    assert_eq!(
+        second_result.metadata,
+        Some(serde_json::json!({ "section": "details" }))
+    );
     let query_vector_b = vec![0.7, 0.15, 0.15];
-    let search_result_b = vector_db.search(query_vector_b.clone(), 5, Some(0.5)).await?;
+    let search_result_b = vector_db
+        .search(query_vector_b.clone(), 5, Some(0.5))
+        .await?;
     assert_eq!(search_result_b.len(), 2, "Expected 2 results for query B");
     assert_eq!(search_result_b[0].file_path, "file2.md");
     assert_eq!(search_result_b[0].source, Some("source_B".to_string()));
-    assert_eq!(search_result_b[0].content_chunk, "This is chunk 1 from source B.");
+    assert_eq!(
+        search_result_b[0].content_chunk,
+        "This is chunk 1 from source B."
+    );
     assert!(search_result_b[0].metadata.is_none());
     Ok(())
 }
@@ -109,9 +104,9 @@ async fn test_vector_db_upsert_and_search() -> Result<()> {
 #[tokio::test]
 async fn test_vector_db_new_invalid_params() -> Result<()> {
     let qdrant_url = get_qdrant_url().await?;
-    let client1 = Qdrant::from_url(qdrant_url).build()?;
+    let client1 = Qdrant::from_url(&qdrant_url).build()?;
     assert!(VectorDb::new(Box::new(client1), "".to_string(), 3).is_err());
-    let client2 = Qdrant::from_url(qdrant_url).build()?;
+    let client2 = Qdrant::from_url(&qdrant_url).build()?;
     assert!(VectorDb::new(Box::new(client2), "test".to_string(), 0).is_err());
     Ok(())
 }
@@ -119,21 +114,24 @@ async fn test_vector_db_new_invalid_params() -> Result<()> {
 #[tokio::test]
 async fn test_vector_db_search_wrong_dimension() -> Result<()> {
     let qdrant_url = get_qdrant_url().await?;
-    let client = Qdrant::from_url(qdrant_url).build()?;
+    let client = Qdrant::from_url(&qdrant_url).build()?;
     let collection_name = format!("test_coll_dim_{}", Uuid::new_v4());
     let vector_db = VectorDb::new(Box::new(client), collection_name, 3)?;
     vector_db.initialize_collection().await?;
     let query_vector = vec![0.1, 0.2];
     let search_result = vector_db.search(query_vector, 5, None).await;
     assert!(search_result.is_err());
-    assert!(search_result.unwrap_err().to_string().contains("Query vector dimension"));
+    assert!(search_result
+        .unwrap_err()
+        .to_string()
+        .contains("Query vector dimension"));
     Ok(())
 }
 
 #[tokio::test]
 async fn test_vector_db_upsert_empty() -> Result<()> {
     let qdrant_url = get_qdrant_url().await?;
-    let client = Qdrant::from_url(qdrant_url).build()?;
+    let client = Qdrant::from_url(&qdrant_url).build()?;
     let collection_name = format!("test_coll_empty_{}", Uuid::new_v4());
     let vector_db = VectorDb::new(Box::new(client), collection_name, 3)?;
     vector_db.initialize_collection().await?;

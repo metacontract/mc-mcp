@@ -31,7 +31,7 @@ fn html_to_text(html: &str) -> String {
             '<' => in_tag = true,
             '>' => in_tag = false,
             _ if !in_tag => result.push(c),
-            _ => {},
+            _ => {}
         }
     }
     // 簡単な空白の整形

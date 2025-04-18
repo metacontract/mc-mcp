@@ -1,47 +1,49 @@
 // NOTE: use statements will need adjustment after refactoring
+use rmcp::serde_json::json;
 use rmcp::{
-    model::{Content, ServerInfo, ServerCapabilities, Implementation, CallToolResult, ProtocolVersion, PaginatedRequestParam, ListResourcesResult, ReadResourceRequestParam, ReadResourceResult, ListPromptsResult, GetPromptRequestParam, GetPromptResult, ListResourceTemplatesResult, RawContent},
-    ServiceExt,
-    ServerHandler,
-    service::RequestContext,
-    RoleServer,
-    Error as McpError,
-    tool,
+    model::{
+        CallToolResult, Content, GetPromptRequestParam, GetPromptResult, Implementation,
+        ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParam,
+        ProtocolVersion, RawContent, ReadResourceRequestParam, ReadResourceResult,
+        ServerCapabilities, ServerInfo,
+    },
     schemars::{self, JsonSchema},
+    service::RequestContext,
+    tool, Error as McpError, RoleServer, ServerHandler, ServiceExt,
 };
+use serde::Deserialize;
 use std::sync::Arc;
-use rmcp::serde_json::{json};
 use tokio::{
     io::{stdin, stdout},
     process::Command,
 };
-use serde::{Deserialize};
 
 // Import from the library crate using its name (mc-mcp)
 use mc_mcp::application::reference_service::ReferenceServiceImpl;
-use mc_mcp::domain::reference::ReferenceService;
-use mc_mcp::infrastructure::embedding::EmbeddingGenerator;
-use mc_mcp::infrastructure::EmbeddingModel;
-use mc_mcp::infrastructure::vector_db::{VectorDb, qdrant_client};
-use mc_mcp::domain::vector_repository::VectorRepository;
 use mc_mcp::config; // Import config module directly
-use mc_mcp::file_system; // Import file_system module directly
-use mc_mcp::domain; // Import domain for SearchQuery
 use mc_mcp::config::DocumentSource; // Import DocumentSource for MockReferenceService
+use mc_mcp::domain; // Import domain for SearchQuery
+use mc_mcp::domain::reference::ReferenceService;
+use mc_mcp::domain::vector_repository::VectorRepository;
+use mc_mcp::file_system; // Import file_system module directly
+use mc_mcp::infrastructure::embedding::EmbeddingGenerator;
 use mc_mcp::infrastructure::file_system::download_if_not_exists;
+use mc_mcp::infrastructure::vector_db::{qdrant_client, VectorDb};
+use mc_mcp::infrastructure::EmbeddingModel;
 
-use log;
-use env_logger;
 use anyhow::Result;
+use env_logger;
+use log;
 // Add imports for Qdrant types used in mock impl
-use qdrant_client::qdrant::{ScoredPoint, PointStruct};
+use qdrant_client::qdrant::{PointStruct, ScoredPoint};
 // Import BoxFuture for mock impl signature
 use futures::future::BoxFuture;
 
-use std::time::Duration;
 use std::thread::sleep;
+use std::time::Duration;
 
-const PREBUILT_INDEX_URL: &str = "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
+const PREBUILT_INDEX_URL: &str =
+    "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
 const PREBUILT_INDEX_DEST: &str = "artifacts/prebuilt_index.jsonl.gz";
 const FORGE_TEMPLATE_REPO: &str = "metacontract/mc-template";
 
@@ -60,13 +62,19 @@ async fn main() -> Result<()> {
     log::info!("Configuration loaded: {:?}", config);
 
     // --- Dependency Injection Setup (Moved earlier to access vector_db) ---
-    let qdrant_url = std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6334".to_string());
+    let qdrant_url =
+        std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6334".to_string());
     let qdrant_client = qdrant_client::Qdrant::from_url(&qdrant_url).build()?;
-    let collection_name = std::env::var("QDRANT_COLLECTION").unwrap_or_else(|_| "mc_docs".to_string());
-    let vector_dim: u64 = std::env::var("EMBEDDING_DIM").ok().and_then(|s| s.parse().ok()).unwrap_or(384);
+    let collection_name =
+        std::env::var("QDRANT_COLLECTION").unwrap_or_else(|_| "mc_docs".to_string());
+    let vector_dim: u64 = std::env::var("EMBEDDING_DIM")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(384);
     let embedding_model = EmbeddingModel::AllMiniLML6V2;
     let embedder = Arc::new(EmbeddingGenerator::new(embedding_model)?);
-    let vector_db_instance = VectorDb::new(Box::new(qdrant_client), collection_name.clone(), vector_dim)?;
+    let vector_db_instance =
+        VectorDb::new(Box::new(qdrant_client), collection_name.clone(), vector_dim)?;
     // Initialize collection *before* potentially upserting prebuilt index
     vector_db_instance.initialize_collection().await?;
     // Get Arc<dyn VectorRepository> to use for both prebuilt index and service
@@ -76,10 +84,16 @@ async fn main() -> Result<()> {
 
     // --- Prebuilt Index Loading (If configured) ---
     if let Some(prebuilt_path) = &config.reference.prebuilt_index_path {
-        log::info!("Attempting to load prebuilt index from: {:?}", prebuilt_path);
+        log::info!(
+            "Attempting to load prebuilt index from: {:?}",
+            prebuilt_path
+        );
         match file_system::load_prebuilt_index(prebuilt_path.clone()) {
             Ok(prebuilt_docs) => {
-                log::info!("Successfully loaded {} documents from prebuilt index.", prebuilt_docs.len());
+                log::info!(
+                    "Successfully loaded {} documents from prebuilt index.",
+                    prebuilt_docs.len()
+                );
                 if !prebuilt_docs.is_empty() {
                     log::info!("Upserting prebuilt documents...");
                     // Use the vector_db Arc directly to upsert
@@ -99,17 +113,23 @@ async fn main() -> Result<()> {
     }
 
     // --- Initialize Reference Service (after potential prebuilt index loading) ---
-    let reference_service: Arc<dyn ReferenceService> = Arc::new(ReferenceServiceImpl::new(embedder, vector_db.clone()));
+    let reference_service = Arc::new(ReferenceServiceImpl::new(embedder, vector_db.clone()));
 
     // --- Initial Indexing from configured sources (after potential prebuilt index loading) ---
-    log::info!("Triggering indexing from configured sources ({} sources)...", config.reference.sources.len());
+    log::info!(
+        "Triggering indexing from configured sources ({} sources)...",
+        config.reference.sources.len()
+    );
     // Decide if we should always index sources, or skip if prebuilt was loaded?
     // For now, let's always index configured sources after loading prebuilt.
     // Duplicates might be overwritten depending on VectorDb implementation.
-    if let Err(e) = reference_service.index_sources(&config.reference.sources).await {
+    if let Err(e) = reference_service
+        .index_sources(&config.reference.sources)
+        .await
+    {
         log::error!("Error during configured source indexing: {}", e);
     }
-    log::info!("Configured source indexing process started/completed." );
+    log::info!("Configured source indexing process started/completed.");
 
     // --- Start MCP Server ---
     let handler = MyHandler { reference_service };
@@ -153,23 +173,21 @@ impl MyHandler {
     #[tool(description = "Run 'forge test' in the workspace.")]
     async fn mc_test(&self) -> Result<CallToolResult, McpError> {
         log::info!("Executing mc_test tool...");
-        let output_result = Command::new("forge")
-            .arg("test")
-            .output()
-            .await;
+        let output_result = Command::new("forge").arg("test").output().await;
 
         match output_result {
             Ok(output) => {
                 log::info!("Forge test finished with status: {:?}", output.status);
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                let status_code = output.status.code().map_or("N/A".to_string(), |c| c.to_string());
+                let status_code = output
+                    .status
+                    .code()
+                    .map_or("N/A".to_string(), |c| c.to_string());
 
                 let result_text = format!(
                     "Forge Test Results:\nExit Code: {}\n\nStdout:\n{}\nStderr:\n{}",
-                    status_code,
-                    stdout,
-                    stderr
+                    status_code, stdout, stderr
                 );
 
                 if output.status.success() {
@@ -189,37 +207,49 @@ impl MyHandler {
     }
 
     #[tool(description = "Semantic search over metacontract documents.")]
-    async fn mc_search_docs_semantic(&self, #[tool(aggr)] args: SearchDocsArgs) -> Result<CallToolResult, McpError> {
+    async fn mc_search_docs_semantic(
+        &self,
+        #[tool(aggr)] args: SearchDocsArgs,
+    ) -> Result<CallToolResult, McpError> {
         let query = args.query;
         let limit = args.limit.unwrap_or(MAX_SEARCH_RESULTS);
-        log::info!("Executing mc_search_docs tool with query: '{}', limit: {}", query, limit);
+        log::info!(
+            "Executing mc_search_docs tool with query: '{}', limit: {}",
+            query,
+            limit
+        );
 
         let search_query = domain::reference::SearchQuery {
             text: query.clone(),
             limit: Some(limit),
             sources: None,
         };
-        match self.reference_service.search_documents(search_query, None).await {
-            Ok(results) => {
-                match serde_json::to_value(results) {
-                    Ok(json_value) => {
-                        log::debug!("Successfully serialized search results to JSON");
-                        match serde_json::to_string(&json_value) {
-                            Ok(json_string) => Ok(CallToolResult::success(vec![Content::text(json_string)])),
-                            Err(e) => {
-                                log::error!("Failed to serialize JSON to string: {:?}", e);
-                                let err_msg = format!("Failed to create text response from JSON: {:?}", e);
-                                Ok(CallToolResult::error(vec![Content::text(err_msg)]))
-                            }
+        match self
+            .reference_service
+            .search_documents(search_query, None)
+            .await
+        {
+            Ok(results) => match serde_json::to_value(results) {
+                Ok(json_value) => {
+                    log::debug!("Successfully serialized search results to JSON");
+                    match serde_json::to_string(&json_value) {
+                        Ok(json_string) => {
+                            Ok(CallToolResult::success(vec![Content::text(json_string)]))
+                        }
+                        Err(e) => {
+                            log::error!("Failed to serialize JSON to string: {:?}", e);
+                            let err_msg =
+                                format!("Failed to create text response from JSON: {:?}", e);
+                            Ok(CallToolResult::error(vec![Content::text(err_msg)]))
                         }
                     }
-                    Err(e) => {
-                        log::error!("Failed to serialize search results to JSON: {}", e);
-                        let err_msg = format!("Failed to serialize search results: {}", e);
-                        Ok(CallToolResult::error(vec![Content::text(err_msg)]))
-                    }
                 }
-            }
+                Err(e) => {
+                    log::error!("Failed to serialize search results to JSON: {}", e);
+                    let err_msg = format!("Failed to serialize search results: {}", e);
+                    Ok(CallToolResult::error(vec![Content::text(err_msg)]))
+                }
+            },
             Err(e) => {
                 log::error!("Semantic search failed: {}", e);
                 let err_msg = format!("Semantic search failed: {}", e);
@@ -228,19 +258,24 @@ impl MyHandler {
         }
     }
 
-    #[tool(description = "Initialize a new Foundry project using a template. Only works in an empty directory.")]
+    #[tool(
+        description = "Initialize a new Foundry project using a template. Only works in an empty directory."
+    )]
     pub async fn setup(&self) -> Result<CallToolResult, McpError> {
+        use std::env;
         use std::fs;
         use std::process::Command;
-        use std::env;
         // 1. Check if current directory is empty
-        let current_dir = env::current_dir().map_err(|e| McpError::internal_error(format!("Failed to get current dir: {e}"), None))?;
-        let entries = fs::read_dir(&current_dir)
-            .map_err(|e| McpError::internal_error(format!("Failed to read current dir: {e}"), None))?;
+        let current_dir = env::current_dir().map_err(|e| {
+            McpError::internal_error(format!("Failed to get current dir: {e}"), None)
+        })?;
+        let entries = fs::read_dir(&current_dir).map_err(|e| {
+            McpError::internal_error(format!("Failed to read current dir: {e}"), None)
+        })?;
         let is_empty = entries.into_iter().next().is_none();
         if !is_empty {
             return Ok(CallToolResult::error(vec![Content::text(
-                "The current directory is not empty. Please run setup in a new directory."
+                "The current directory is not empty. Please run setup in a new directory.",
             )]));
         }
         // 2. Run forge init . -t <repo>
@@ -249,13 +284,14 @@ impl MyHandler {
             .status()
             .map_err(|e| McpError::internal_error(format!("Failed to run forge: {e}"), None))?;
         if status.success() {
-            Ok(CallToolResult::success(vec![Content::text(
-                format!("Successfully initialized Foundry project with template: {FORGE_TEMPLATE_REPO}")
-            )]))
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Successfully initialized Foundry project with template: {FORGE_TEMPLATE_REPO}"
+            ))]))
         } else {
-            Ok(CallToolResult::error(vec![Content::text(
-                format!("forge init failed with exit code: {:?}", status.code())
-            )]))
+            Ok(CallToolResult::error(vec![Content::text(format!(
+                "forge init failed with exit code: {:?}",
+                status.code()
+            ))]))
         }
     }
 }
@@ -265,11 +301,12 @@ impl ServerHandler for MyHandler {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             protocol_version: ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities::builder()
-                .enable_tools()
-                .build(),
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
-            instructions: Some("This server can run forge tests and perform semantic search on indexed documents.".into()),
+            instructions: Some(
+                "This server can run forge tests and perform semantic search on indexed documents."
+                    .into(),
+            ),
         }
     }
 
@@ -311,7 +348,10 @@ impl ServerHandler for MyHandler {
         GetPromptRequestParam { name, arguments: _ }: GetPromptRequestParam,
         _: RequestContext<RoleServer>,
     ) -> Result<GetPromptResult, McpError> {
-        Err(McpError::invalid_params(format!("Prompt feature not implemented: {}", name), None))
+        Err(McpError::invalid_params(
+            format!("Prompt feature not implemented: {}", name),
+            None,
+        ))
     }
 
     async fn list_resource_templates(
@@ -331,14 +371,14 @@ mod tests {
     use super::*;
     use std::env;
     use std::fs;
-    use tempfile::tempdir;
     use std::sync::{Arc, Mutex};
+    use tempfile::tempdir;
     // Use the library crate path for domain items in tests
-    use mc_mcp::domain::reference::SearchResult;
-    use mc_mcp::config::DocumentSource; // Import DocumentSource via library crate
-    use mc_mcp::ReferenceService; // Import trait via library crate
     use anyhow::Result;
     use async_trait::async_trait;
+    use mc_mcp::config::DocumentSource; // Import DocumentSource via library crate
+    use mc_mcp::domain::reference::SearchResult;
+    use mc_mcp::ReferenceService; // Import trait via library crate
     use rmcp::model::Content;
 
     use rmcp::serde_json::{self, json};
@@ -356,7 +396,7 @@ mod tests {
             *lock = results;
         }
         fn get_indexed_sources(&self) -> Vec<DocumentSource> {
-             self.indexed_sources.lock().unwrap().clone()
+            self.indexed_sources.lock().unwrap().clone()
         }
     }
 
@@ -364,22 +404,44 @@ mod tests {
     impl ReferenceService for MockReferenceService {
         // index_sources implementation
         async fn index_sources(&self, sources: &[DocumentSource]) -> Result<()> {
-            println!("MockReferenceService: index_sources called with {} sources", sources.len());
-            self.indexed_sources.lock().unwrap().extend_from_slice(sources);
+            println!(
+                "MockReferenceService: index_sources called with {} sources",
+                sources.len()
+            );
+            self.indexed_sources
+                .lock()
+                .unwrap()
+                .extend_from_slice(sources);
             Ok(())
         }
         // search_documents implementation
-        async fn search_documents(&self, query: mc_mcp::domain::reference::SearchQuery, _score_threshold: Option<f32>) -> Result<Vec<SearchResult>> {
-            println!("MockReferenceService: search_documents called with query: {:?}", query);
+        async fn search_documents(
+            &self,
+            query: mc_mcp::domain::reference::SearchQuery,
+            _score_threshold: Option<f32>,
+        ) -> Result<Vec<SearchResult>> {
+            println!(
+                "MockReferenceService: search_documents called with query: {:?}",
+                query
+            );
             let results = self.results_to_return.lock().unwrap().clone();
             Ok(results)
         }
-         // Dummy implementations for non-async trait methods (required by compiler)
-        fn search(&self, _collection_name: String, _vector: Vec<f32>, _limit: u64) -> BoxFuture<Result<Vec<ScoredPoint>, String>> {
+        // Dummy implementations for non-async trait methods (required by compiler)
+        fn search(
+            &self,
+            _collection_name: String,
+            _vector: Vec<f32>,
+            _limit: u64,
+        ) -> BoxFuture<Result<Vec<ScoredPoint>, String>> {
             unimplemented!("Mock search not needed for these tests")
         }
-        fn upsert(&self, _collection_name: String, _points: Vec<PointStruct>) -> BoxFuture<Result<(), String>> {
-             unimplemented!("Mock upsert not needed for these tests")
+        fn upsert(
+            &self,
+            _collection_name: String,
+            _points: Vec<PointStruct>,
+        ) -> BoxFuture<Result<(), String>> {
+            unimplemented!("Mock upsert not needed for these tests")
         }
     }
 
@@ -387,7 +449,9 @@ mod tests {
     // Helper function returns concrete mock type now
     fn setup_mock_handler() -> (MyHandler, Arc<MockReferenceService>) {
         let mock_service = Arc::new(MockReferenceService::default());
-        let handler = MyHandler { reference_service: mock_service.clone() };
+        let handler = MyHandler {
+            reference_service: mock_service.clone(),
+        };
         (handler, mock_service)
     }
 
@@ -404,16 +468,24 @@ mod tests {
         };
         mock_service.set_search_results(vec![mock_result.clone()]);
 
-        let args = SearchDocsArgs { query: "test query".to_string(), limit: Some(3) };
-        let result = handler.mc_search_docs_semantic(args).await.expect("Tool call failed");
+        let args = SearchDocsArgs {
+            query: "test query".to_string(),
+            limit: Some(3),
+        };
+        let result = handler
+            .mc_search_docs_semantic(args)
+            .await
+            .expect("Tool call failed");
 
         assert_eq!(result.is_error, Some(false));
         assert_eq!(result.content.len(), 1);
 
         // Match on annotated_content.raw
         let annotated_content = &result.content[0];
-        match &annotated_content.raw { // Match on .raw field
-            RawContent::Text(text) => { // Expect Text containing JSON string
+        match &annotated_content.raw {
+            // Match on .raw field
+            RawContent::Text(text) => {
+                // Expect Text containing JSON string
                 // Parse the JSON string from the text content
                 let parsed_results: Vec<SearchResult> = serde_json::from_str(&text.text)
                     .expect("Failed to parse SearchResult from text content");
@@ -435,7 +507,10 @@ mod tests {
             }
             */
             // RawContent::Text handled above, panic for other unexpected types
-            other_kind => panic!("Expected Text content containing JSON, found {:?}", other_kind),
+            other_kind => panic!(
+                "Expected Text content containing JSON, found {:?}",
+                other_kind
+            ),
         }
     }
 
@@ -444,16 +519,24 @@ mod tests {
         let (handler, mock_service) = setup_mock_handler();
         mock_service.set_search_results(vec![]); // No results
 
-        let args = SearchDocsArgs { query: "nonexistent".to_string(), limit: Some(3) };
-        let result = handler.mc_search_docs_semantic(args).await.expect("Tool call failed");
+        let args = SearchDocsArgs {
+            query: "nonexistent".to_string(),
+            limit: Some(3),
+        };
+        let result = handler
+            .mc_search_docs_semantic(args)
+            .await
+            .expect("Tool call failed");
 
         assert_eq!(result.is_error, Some(false));
         assert_eq!(result.content.len(), 1);
 
         // Match on annotated_content.raw
         let annotated_content = &result.content[0];
-        match &annotated_content.raw { // Match on .raw field
-            RawContent::Text(text) => { // Expect Text containing JSON string
+        match &annotated_content.raw {
+            // Match on .raw field
+            RawContent::Text(text) => {
+                // Expect Text containing JSON string
                 // Parse the JSON string (expecting empty array)
                 let parsed_results: Vec<SearchResult> = serde_json::from_str(&text.text)
                     .expect("Failed to parse SearchResult from text content");
@@ -467,7 +550,10 @@ mod tests {
             }
             */
             // RawContent::Text handled above, panic for other unexpected types
-            other_kind => panic!("Expected Text content containing JSON, found {:?}", other_kind),
+            other_kind => panic!(
+                "Expected Text content containing JSON, found {:?}",
+                other_kind
+            ),
         }
     }
 
@@ -480,16 +566,24 @@ mod tests {
         let result = handler.mc_test().await.expect("Tool call should not panic");
 
         // Expect success (is_error = false) when forge command runs
-        assert_eq!(result.is_error, Some(false), "Expected is_error to be false when forge runs");
-        assert!(!result.content.is_empty(), "Expected content to be non-empty");
+        assert_eq!(
+            result.is_error,
+            Some(false),
+            "Expected is_error to be false when forge runs"
+        );
+        assert!(
+            !result.content.is_empty(),
+            "Expected content to be non-empty"
+        );
 
         // Optional: Further check content if needed, e.g., look for typical success output
         let annotated_content = &result.content[0];
-        let _ = match &annotated_content.raw { // Match on .raw field and bind to _
+        let _ = match &annotated_content.raw {
+            // Match on .raw field and bind to _
             RawContent::Text(text) => {
                 // We can't reliably assert on the exact output, but we know it should be text
                 assert!(!text.text.is_empty(), "Expected non-empty text output");
-            },
+            }
             other_kind => panic!("Expected Text content, found {:?}", other_kind),
         };
     }
@@ -503,15 +597,26 @@ mod tests {
         let result = handler.mc_test().await.expect("Tool call should not panic");
 
         // Expect error (is_error = true) when forge command fails internally
-        assert_eq!(result.is_error, Some(true), "Expected is_error to be true when forge fails");
-        assert!(!result.content.is_empty(), "Expected content to be non-empty");
+        assert_eq!(
+            result.is_error,
+            Some(true),
+            "Expected is_error to be true when forge fails"
+        );
+        assert!(
+            !result.content.is_empty(),
+            "Expected content to be non-empty"
+        );
 
         // Optional: Check for specific failure messages in content if needed
         let annotated_content = &result.content[0];
-        let _ = match &annotated_content.raw { // Match on .raw field and bind to _
+        let _ = match &annotated_content.raw {
+            // Match on .raw field and bind to _
             RawContent::Text(text) => {
-                assert!(!text.text.is_empty(), "Expected non-empty text output for failure");
-            },
+                assert!(
+                    !text.text.is_empty(),
+                    "Expected non-empty text output for failure"
+                );
+            }
             other_kind => panic!("Expected Text content for failure, found {:?}", other_kind),
         };
     }
@@ -523,10 +628,18 @@ mod tests {
         env::set_current_dir(&dir).unwrap();
         // Mock Command::new("forge") if needed
         // For now, just check the error message for non-empty dir
-        let handler = MyHandler { reference_service: Arc::new(MockReferenceService::default()) };
+        let handler = MyHandler {
+            reference_service: Arc::new(MockReferenceService::default()),
+        };
         let result = handler.setup().await.unwrap();
         // Since forge is likely not available in CI, just check for error or success message
-        assert!(result.content[0].raw.as_text().map_or(false, |t| t.text.contains("Foundry project")) || result.is_error == Some(true));
+        assert!(
+            result.content[0]
+                .raw
+                .as_text()
+                .map_or(false, |t| t.text.contains("Foundry project"))
+                || result.is_error == Some(true)
+        );
         env::set_current_dir(old_dir).unwrap();
     }
 
@@ -537,17 +650,24 @@ mod tests {
         fs::write(&file_path, "dummy").unwrap();
         let old_dir = env::current_dir().unwrap();
         env::set_current_dir(&dir).unwrap();
-        let handler = MyHandler { reference_service: Arc::new(MockReferenceService::default()) };
+        let handler = MyHandler {
+            reference_service: Arc::new(MockReferenceService::default()),
+        };
         let result = handler.setup().await.unwrap();
         assert!(result.is_error == Some(true));
-        assert!(result.content[0].raw.as_text().map_or(false, |t| t.text.contains("空ではありません")));
+        assert!(result.content[0]
+            .raw
+            .as_text()
+            .map_or(false, |t| t.text.contains("not empty")));
         env::set_current_dir(old_dir).unwrap();
     }
 }
 
 fn ensure_qdrant_via_docker() -> Result<(), String> {
     // 1. Check if Docker is installed
-    let docker_check = std::process::Command::new("docker").arg("--version").output();
+    let docker_check = std::process::Command::new("docker")
+        .arg("--version")
+        .output();
     if docker_check.is_err() {
         return Err("Docker is not installed".to_string());
     }
@@ -564,11 +684,24 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
         // 3. Start Qdrant container
         println!("Qdrant container not found. Starting Qdrant in Docker...");
         let run = std::process::Command::new("docker")
-            .args(["run", "-d", "--name", "qdrant", "-p", "6333:6333", "-p", "6334:6334", "qdrant/qdrant"])
+            .args([
+                "run",
+                "-d",
+                "--name",
+                "qdrant",
+                "-p",
+                "6333:6333",
+                "-p",
+                "6334:6334",
+                "qdrant/qdrant",
+            ])
             .output()
             .map_err(|e| format!("Failed to execute docker run: {e}"))?;
         if !run.status.success() {
-            return Err(format!("Failed to start Qdrant container: {}", String::from_utf8_lossy(&run.stderr)));
+            return Err(format!(
+                "Failed to start Qdrant container: {}",
+                String::from_utf8_lossy(&run.stderr)
+            ));
         }
         println!("Qdrant container started.");
     }
@@ -576,7 +709,10 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
     // 4. Health check (HTTP endpoint retry)
     let endpoint = "http://localhost:6333/collections";
     for i in 1..=5 {
-        match ureq::get(endpoint).timeout(std::time::Duration::from_millis(1000)).call() {
+        match ureq::get(endpoint)
+            .timeout(std::time::Duration::from_millis(1000))
+            .call()
+        {
             Ok(resp) if resp.status() == 200 => {
                 println!("✅ Qdrant is running and connected!");
                 return Ok(());

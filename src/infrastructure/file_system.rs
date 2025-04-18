@@ -1,16 +1,15 @@
+use super::markdown::parse_markdown_to_text; // Assuming markdown.rs exists
+use anyhow::Result;
+use flate2::read::GzDecoder;
+use log::{debug, error, warn};
+use reqwest;
+use serde_json;
 use std::collections::HashMap;
 use std::fs::{self, File};
+use std::io::copy;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use walkdir::WalkDir;
-use super::markdown::parse_markdown_to_text; // Assuming markdown.rs exists
-use serde_json;
-use log::{debug, error, warn};
-use anyhow::Result;
-use std::io::{BufRead, BufReader};
-use flate2::read::GzDecoder;
-use reqwest;
-use std::io::copy;
-use std::path::Path;
 
 // Import DocumentToUpsert from the correct module
 use crate::infrastructure::vector_db::DocumentToUpsert;
@@ -43,7 +42,10 @@ pub fn load_documents(docs_path: Option<PathBuf>) -> Result<SimpleDocumentIndex,
     println!("Loading documents from: {:?}", target_path);
 
     if !target_path.is_dir() {
-        return Err(format!("Specified path is not a directory: {:?}", target_path));
+        return Err(format!(
+            "Specified path is not a directory: {:?}",
+            target_path
+        ));
     }
 
     let mut index = SimpleDocumentIndex::new();
@@ -51,7 +53,7 @@ pub fn load_documents(docs_path: Option<PathBuf>) -> Result<SimpleDocumentIndex,
     for entry in WalkDir::new(&target_path)
         .into_iter()
         .filter_map(|e| e.ok()) // エラーになったエントリは無視
-        .filter(|e| e.path().is_file() && e.path().extension().map_or(false, |ext| ext == "md"))
+        .filter(|e| e.path().is_file() && e.path().extension().is_some_and(|ext| ext == "md"))
     {
         let path = entry.path();
         let path_str = path.to_string_lossy().to_string();
@@ -68,7 +70,10 @@ pub fn load_documents(docs_path: Option<PathBuf>) -> Result<SimpleDocumentIndex,
     }
 
     if index.is_empty() {
-       println!("Warning: No markdown files found or loaded from {:?}", target_path);
+        println!(
+            "Warning: No markdown files found or loaded from {:?}",
+            target_path
+        );
     }
 
     Ok(index)
@@ -81,7 +86,7 @@ pub fn load_prebuilt_index(path: PathBuf) -> Result<Vec<DocumentToUpsert>> {
 
     let file = File::open(&path)
         .map_err(|e| anyhow::anyhow!("Failed to open prebuilt index file {:?}: {}", path, e))?;
-    let reader: Box<dyn BufRead> = if path.extension().map_or(false, |ext| ext == "gz") {
+    let reader: Box<dyn BufRead> = if path.extension().is_some_and(|ext| ext == "gz") {
         Box::new(BufReader::new(GzDecoder::new(file)))
     } else {
         Box::new(BufReader::new(file))
@@ -109,7 +114,10 @@ pub fn load_prebuilt_index(path: PathBuf) -> Result<Vec<DocumentToUpsert>> {
         match serde_json::from_str::<DocumentToUpsert>(&line) {
             Ok(doc) => documents.push(doc),
             Err(e) => {
-                error!("Failed to parse JSON on line {} in {:?}: {}. Line content: {}", line_number, path, e, line);
+                error!(
+                    "Failed to parse JSON on line {} in {:?}: {}. Line content: {}",
+                    line_number, path, e, line
+                );
                 errors += 1;
                 // Optionally, decide whether to stop processing or just skip the line
                 // continue;
@@ -123,12 +131,18 @@ pub fn load_prebuilt_index(path: PathBuf) -> Result<Vec<DocumentToUpsert>> {
         // return Err(anyhow::anyhow!("Failed to load prebuilt index completely due to {} errors.", errors));
     }
 
-    log::info!("Successfully loaded {} documents from prebuilt index {:?}", documents.len(), path);
+    log::info!(
+        "Successfully loaded {} documents from prebuilt index {:?}",
+        documents.len(),
+        path
+    );
     Ok(documents)
 }
 
 /// Loads Markdown documents from multiple sources, each with its own source metadata.
-pub fn load_documents_from_multiple_sources(sources: &[(PathBuf, String)]) -> Result<SimpleDocumentIndex, String> {
+pub fn load_documents_from_multiple_sources(
+    sources: &[(PathBuf, String)],
+) -> Result<SimpleDocumentIndex, String> {
     let mut index = SimpleDocumentIndex::new();
     for (dir, source) in sources {
         if !dir.is_dir() {
@@ -137,7 +151,7 @@ pub fn load_documents_from_multiple_sources(sources: &[(PathBuf, String)]) -> Re
         for entry in WalkDir::new(dir)
             .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().is_file() && e.path().extension().map_or(false, |ext| ext == "md"))
+            .filter(|e| e.path().is_file() && e.path().extension().is_some_and(|ext| ext == "md"))
         {
             let path = entry.path();
             let path_str = path.to_string_lossy().to_string();
@@ -173,7 +187,10 @@ pub fn load_documents_from_source(dir_path: &PathBuf) -> Result<HashMap<String, 
     debug!("Loading documents from single source: {:?}", dir_path);
 
     if !dir_path.is_dir() {
-        return Err(anyhow::anyhow!("Specified path is not a directory: {:?}", dir_path));
+        return Err(anyhow::anyhow!(
+            "Specified path is not a directory: {:?}",
+            dir_path
+        ));
     }
 
     let mut documents = HashMap::new();
@@ -182,7 +199,7 @@ pub fn load_documents_from_source(dir_path: &PathBuf) -> Result<HashMap<String, 
     for entry in WalkDir::new(dir_path)
         .into_iter()
         .filter_map(|e| e.ok()) // Ignore directory traversal errors
-        .filter(|e| e.path().is_file() && e.path().extension().map_or(false, |ext| ext == "md"))
+        .filter(|e| e.path().is_file() && e.path().extension().is_some_and(|ext| ext == "md"))
     {
         let path = entry.path();
         let path_str = path.to_string_lossy().to_string();
@@ -203,7 +220,10 @@ pub fn load_documents_from_source(dir_path: &PathBuf) -> Result<HashMap<String, 
     if documents.is_empty() && read_errors == 0 {
         warn!("No markdown files found in {:?}", dir_path);
     } else if read_errors > 0 {
-        warn!("Encountered {} errors while reading files from {:?}", read_errors, dir_path);
+        warn!(
+            "Encountered {} errors while reading files from {:?}",
+            read_errors, dir_path
+        );
         // Decide if partial success is ok, or return an error?
         // For now, return successfully loaded documents, but log errors.
     }
@@ -213,7 +233,7 @@ pub fn load_documents_from_source(dir_path: &PathBuf) -> Result<HashMap<String, 
 
 /// 指定URLからprebuilt_index.jsonl(.gz)をダウンロード（既存ならスキップ）
 pub fn download_if_not_exists(url: &str, dest: &str) -> anyhow::Result<()> {
-    if Path::new(dest).exists() {
+    if PathBuf::from(dest).exists() {
         println!("Index file already exists: {}", dest);
         return Ok(());
     }
@@ -235,8 +255,10 @@ mod tests {
     fn test_load_documents_default_path_not_exists() {
         // Need to ensure the default path doesn't exist for this test
         if PathBuf::from("metacontract/mc/site/docs").exists() {
-           println!("Skipping test_load_documents_default_path_not_exists because default path exists.");
-           return;
+            println!(
+                "Skipping test_load_documents_default_path_not_exists because default path exists."
+            );
+            return;
         }
         let result = load_documents(None);
         assert!(result.is_err());
@@ -259,9 +281,20 @@ mod tests {
 
         assert_eq!(index.len(), 2);
         // Use the mocked parse_markdown_to_text result
-        assert_eq!(index.get(&docs_path.join("file1.md").to_string_lossy().to_string()), Some(&("Title 1 Content 1".to_string(), "mc-docs".to_string())));
-        assert_eq!(index.get(&docs_path.join("sub/file2.md").to_string_lossy().to_string()), Some(&("List item".to_string(), "mc-docs".to_string()))); // Mock parse result
-        assert!(!index.contains_key(&docs_path.join("not_markdown.txt").to_string_lossy().to_string()));
+        assert_eq!(
+            index.get(&docs_path.join("file1.md").to_string_lossy().to_string()),
+            Some(&("Title 1 Content 1".to_string(), "mc-docs".to_string()))
+        );
+        assert_eq!(
+            index.get(&docs_path.join("sub/file2.md").to_string_lossy().to_string()),
+            Some(&("List item".to_string(), "mc-docs".to_string()))
+        ); // Mock parse result
+        assert!(!index.contains_key(
+            &docs_path
+                .join("not_markdown.txt")
+                .to_string_lossy()
+                .to_string()
+        ));
 
         drop(file1);
         drop(file2);
@@ -269,7 +302,7 @@ mod tests {
         dir.close().unwrap();
     }
 
-     #[test]
+    #[test]
     fn test_load_documents_empty_dir() {
         let dir = tempdir().unwrap();
         let docs_path = dir.path().to_path_buf();
@@ -297,9 +330,9 @@ mod tests {
         let doc1 = serde_json::json!({ "file_path": "file1.md", "vector": [0.1, 0.2], "source": "prebuilt", "content_chunk": "chunk 1", "metadata": null });
         let doc2 = serde_json::json!({ "file_path": "file2.md", "vector": [0.3, 0.4], "source": "prebuilt", "content_chunk": "chunk 2", "metadata": { "tag": "test" } });
 
-        writeln!(file, "{}", doc1.to_string()).unwrap();
-        writeln!(file, "").unwrap(); // Empty line to be skipped
-        writeln!(file, "{}", doc2.to_string()).unwrap();
+        writeln!(file, "{}", doc1).unwrap();
+        writeln!(file).unwrap(); // Empty line to be skipped
+        writeln!(file, "{}", doc2).unwrap();
         drop(file);
 
         let result = load_prebuilt_index(index_path.clone());
@@ -318,7 +351,10 @@ mod tests {
         assert_eq!(documents[1].vector, vec![0.3, 0.4]);
         assert_eq!(documents[1].source, Some("prebuilt".to_string()));
         assert_eq!(documents[1].content_chunk, "chunk 2");
-        assert_eq!(documents[1].metadata, Some(serde_json::json!({ "tag": "test" })));
+        assert_eq!(
+            documents[1].metadata,
+            Some(serde_json::json!({ "tag": "test" }))
+        );
 
         dir.close().unwrap();
     }
@@ -329,10 +365,10 @@ mod tests {
         let index_path = dir.path().join("prebuilt_index_error.jsonl");
         let mut file = File::create(&index_path).unwrap();
         let doc1 = serde_json::json!({ "file_path": "file1.md", "vector": [0.1], "source": "ok", "content_chunk": "ok" });
-        writeln!(file, "{}", doc1.to_string()).unwrap();
+        writeln!(file, "{}", doc1).unwrap();
         writeln!(file, "{{\"invalid_json").unwrap(); // Malformed JSON
         let doc3 = serde_json::json!({ "file_path": "file3.md", "vector": [0.3], "source": "ok", "content_chunk": "ok3" });
-        writeln!(file, "{}", doc3.to_string()).unwrap();
+        writeln!(file, "{}", doc3).unwrap();
         drop(file);
 
         let result = load_prebuilt_index(index_path.clone());
@@ -355,10 +391,10 @@ mod tests {
 
     #[test]
     fn test_load_documents_with_additional_sources() {
+        use std::collections::HashMap;
         use std::fs::File;
         use std::io::Write;
         use tempfile::tempdir;
-        use std::collections::HashMap;
         // メインdocsディレクトリ
         let main_dir = tempdir().unwrap();
         let main_md = main_dir.path().join("main.md");
@@ -386,9 +422,18 @@ mod tests {
         let index = load_documents_from_multiple_sources(&sources).unwrap();
         // 期待: 3ファイル全てがインデックスされ、sourceメタデータも正しい
         let mut expected = HashMap::new();
-        expected.insert(main_md.to_string_lossy().to_string(), ("Main doc".to_string(), "mc-docs".to_string()));
-        expected.insert(add1_md.to_string_lossy().to_string(), ("Add1 doc".to_string(), "additional-1".to_string()));
-        expected.insert(add2_md.to_string_lossy().to_string(), ("Add2 doc".to_string(), "additional-2".to_string()));
+        expected.insert(
+            main_md.to_string_lossy().to_string(),
+            ("Main doc".to_string(), "mc-docs".to_string()),
+        );
+        expected.insert(
+            add1_md.to_string_lossy().to_string(),
+            ("Add1 doc".to_string(), "additional-1".to_string()),
+        );
+        expected.insert(
+            add2_md.to_string_lossy().to_string(),
+            ("Add2 doc".to_string(), "additional-2".to_string()),
+        );
         assert_eq!(index, expected);
         main_dir.close().unwrap();
         add1.close().unwrap();
@@ -411,9 +456,22 @@ mod tests {
         let documents = load_documents_from_source(&source_path).unwrap();
 
         assert_eq!(documents.len(), 2);
-        assert_eq!(documents.get(&source_path.join("file1.md").to_string_lossy().to_string()), Some(&"# Content 1\n".to_string()));
-        assert_eq!(documents.get(&source_path.join("subdir/file2.md").to_string_lossy().to_string()), Some(&"Content 2\n".to_string()));
-        assert!(!documents.contains_key(&source_path.join("other.txt").to_string_lossy().to_string()));
+        assert_eq!(
+            documents.get(&source_path.join("file1.md").to_string_lossy().to_string()),
+            Some(&"# Content 1\n".to_string())
+        );
+        assert_eq!(
+            documents.get(
+                &source_path
+                    .join("subdir/file2.md")
+                    .to_string_lossy()
+                    .to_string()
+            ),
+            Some(&"Content 2\n".to_string())
+        );
+        assert!(
+            !documents.contains_key(&source_path.join("other.txt").to_string_lossy().to_string())
+        );
     }
 
     #[test]
