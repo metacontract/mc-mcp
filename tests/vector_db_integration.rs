@@ -3,11 +3,7 @@ use mc_mcp::infrastructure::vector_db::{DocumentToUpsert, VectorDb};
 use mc_mcp::qdrant_client::Qdrant;
 use mc_mcp::VectorRepository;
 use std::time::Duration;
-use testcontainers::core::{IntoContainerPort, WaitFor};
-use testcontainers::runners::AsyncRunner;
-use testcontainers::{ContainerAsync, GenericImage, ImageExt};
 use tokio;
-use tokio::sync::OnceCell;
 use uuid::Uuid;
 
 // Pseudo Qdrant URL for testing

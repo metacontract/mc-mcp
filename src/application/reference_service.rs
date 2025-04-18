@@ -187,7 +187,7 @@ impl ReferenceService for ReferenceServiceImpl {
                     }
                 }
                 SourceType::Github => {
-                    use std::path::Path;
+                    
                     use std::process::Command;
                     use tempfile::tempdir;
                     let repo = match &source.repo {
@@ -369,8 +369,8 @@ mod tests {
     use anyhow::Result;
     use fastembed::EmbeddingModel;
     use serial_test::serial;
-    use futures::future::BoxFuture;
-    use qdrant_client::qdrant::{PointStruct, ScoredPoint};
+    
+    
     // Import EmbeddingGenerator directly
     // use crate::infrastructure::embedding::EmbeddingGenerator;
     // Import EmbeddingModel directly from fastembed as suggested

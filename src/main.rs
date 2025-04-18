@@ -4,7 +4,7 @@ use rmcp::{
     model::{
         CallToolResult, Content, GetPromptRequestParam, GetPromptResult, Implementation,
         ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParam,
-        ProtocolVersion, RawContent, ReadResourceRequestParam, ReadResourceResult,
+        ProtocolVersion, ReadResourceRequestParam, ReadResourceResult,
         ServerCapabilities, ServerInfo,
     },
     schemars::{self, JsonSchema},
@@ -21,7 +21,7 @@ use tokio::{
 // Import from the library crate using its name (mc-mcp)
 use mc_mcp::application::reference_service::ReferenceServiceImpl;
 use mc_mcp::config; // Import config module directly
-use mc_mcp::config::DocumentSource; // Import DocumentSource for MockReferenceService
+ // Import DocumentSource for MockReferenceService
 use mc_mcp::domain; // Import domain for SearchQuery
 use mc_mcp::domain::reference::ReferenceService;
 use mc_mcp::domain::vector_repository::VectorRepository;
@@ -35,9 +35,7 @@ use anyhow::Result;
 use env_logger;
 use log;
 // Add imports for Qdrant types used in mock impl
-use qdrant_client::qdrant::{PointStruct, ScoredPoint};
 // Import BoxFuture for mock impl signature
-use futures::future::BoxFuture;
 
 use std::thread::sleep;
 use std::time::Duration;
@@ -372,16 +370,19 @@ mod tests {
     use std::env;
     use std::fs;
     use std::sync::{Arc, Mutex};
-    use tempfile::tempdir;
+
     // Use the library crate path for domain items in tests
     use anyhow::Result;
-    use async_trait::async_trait;
+
     use mc_mcp::config::DocumentSource; // Import DocumentSource via library crate
     use mc_mcp::domain::reference::SearchResult;
     use mc_mcp::ReferenceService; // Import trait via library crate
-    use rmcp::model::Content;
+
 
     use rmcp::serde_json::{self, json};
+    use futures::future::BoxFuture;
+    use qdrant_client::qdrant::{PointStruct, ScoredPoint};
+    use rmcp::model::RawContent;
 
     // --- Mock ReferenceService --- //
     #[derive(Clone, Default)] // Add Default derive
