@@ -45,7 +45,7 @@ use std::time::Duration;
 const PREBUILT_INDEX_URL: &str =
     "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
 const PREBUILT_INDEX_DEST: &str = "artifacts/prebuilt_index.jsonl.gz";
-const FORGE_TEMPLATE_REPO: &str = "metacontract/mc-template";
+const FORGE_TEMPLATE_REPO: &str = "metacontract/template";
 
 #[tokio::main]
 async fn main() -> Result<()> {
