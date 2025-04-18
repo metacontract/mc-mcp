@@ -7,10 +7,10 @@
 *   **Target Framework:** `metacontract` (mc) - A Foundry-based framework implementing ERC-7546 (Upgradeable Clone for Scalable Contracts) focusing on upgradeability, modularity, scalability, and testability. Optimized for AI integration and DevOps efficiency.
 *   **Protocol:** Model Context Protocol (MCP) - An open protocol standardizing interactions between AI applications (clients/hosts like IDEs) and external tools/data sources (servers like `mc-mcp`).
 *   **Core Functionality (MCP Tools):** Implemented using `rmcp` SDK's `#[tool]` and `#[tool(tool_box)]` annotations.
-    *   **Naming convention:** All MCP tools should be named with the `mc_` prefix followed by the function name (e.g., `mc_init`, `mc_deploy`, `mc_upgrade`, `mc_lint`).
+    *   **Naming convention:** All MCP tools should be named with the `mc_` prefix followed by the function name (e.g., `mc_init`, `mc_deploy`, `mc_upgrade`, `mc_lint`, `mc_test`, `mc_search_docs`).
     *   **Deploy/Upgrade tool dry-run support:** `mc_deploy` and `mc_upgrade` must support dry-run mode, toggled by the presence of the `--broadcast` flag in `forge script <script> [--broadcast]`. Without `--broadcast`, the tool should simulate the operation (dry-run); with `--broadcast`, it should execute the actual deployment/upgrade.
-    *   **`forge_test`:** Run `forge test` in the workspace.
-    *   **`search_docs`:** Semantic search over `mc` documentation and user-configured sources, returning structured JSON (`Vec<SearchResult>`).
+    *   **`mc_test`:** Run `forge test` in the workspace.
+    *   **`mc_search_docs`:** Semantic search over `mc` documentation and user-configured sources, returning structured JSON (`Vec<SearchResult>`).
 
 ## 2. Technology Stack
 

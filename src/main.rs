@@ -151,8 +151,8 @@ impl MyHandler {
     }
 
     #[tool(description = "Run 'forge test' in the workspace.")]
-    async fn forge_test(&self) -> Result<CallToolResult, McpError> {
-        log::info!("Executing forge test tool...");
+    async fn mc_test(&self) -> Result<CallToolResult, McpError> {
+        log::info!("Executing mc_test tool...");
         let output_result = Command::new("forge")
             .arg("test")
             .output()
@@ -172,17 +172,15 @@ impl MyHandler {
                     stderr
                 );
 
-                // Check the exit status of the command
                 if output.status.success() {
                     log::info!("Forge test reported success.");
                     Ok(CallToolResult::success(vec![Content::text(result_text)]))
                 } else {
                     log::warn!("Forge test reported failure (non-zero exit code).");
-                    // Return error result if the command executed but failed
                     Ok(CallToolResult::error(vec![Content::text(result_text)]))
                 }
             }
-            Err(e) => { // If the 'forge' command itself fails to run
+            Err(e) => {
                 log::error!("Failed to execute forge test command: {}", e);
                 let err_msg = format!("Failed to execute forge command: {}. Make sure 'forge' is installed and in PATH.", e);
                 Ok(CallToolResult::error(vec![Content::text(err_msg)]))
@@ -190,11 +188,11 @@ impl MyHandler {
         }
     }
 
-    #[tool(description = "Search metacontract documents semantically.")]
-    async fn search_docs_semantic(&self, #[tool(aggr)] args: SearchDocsArgs) -> Result<CallToolResult, McpError> {
+    #[tool(description = "Semantic search over metacontract documents.")]
+    async fn mc_search_docs_semantic(&self, #[tool(aggr)] args: SearchDocsArgs) -> Result<CallToolResult, McpError> {
         let query = args.query;
         let limit = args.limit.unwrap_or(MAX_SEARCH_RESULTS);
-        log::info!("Executing semantic search tool with query: '{}', limit: {}", query, limit);
+        log::info!("Executing mc_search_docs tool with query: '{}', limit: {}", query, limit);
 
         let search_query = domain::reference::SearchQuery {
             text: query.clone(),
@@ -407,7 +405,7 @@ mod tests {
         mock_service.set_search_results(vec![mock_result.clone()]);
 
         let args = SearchDocsArgs { query: "test query".to_string(), limit: Some(3) };
-        let result = handler.search_docs_semantic(args).await.expect("Tool call failed");
+        let result = handler.mc_search_docs_semantic(args).await.expect("Tool call failed");
 
         assert_eq!(result.is_error, Some(false));
         assert_eq!(result.content.len(), 1);
@@ -447,7 +445,7 @@ mod tests {
         mock_service.set_search_results(vec![]); // No results
 
         let args = SearchDocsArgs { query: "nonexistent".to_string(), limit: Some(3) };
-        let result = handler.search_docs_semantic(args).await.expect("Tool call failed");
+        let result = handler.mc_search_docs_semantic(args).await.expect("Tool call failed");
 
         assert_eq!(result.is_error, Some(false));
         assert_eq!(result.content.len(), 1);
@@ -479,7 +477,7 @@ mod tests {
         let (handler, _mock_service) = setup_mock_handler();
 
         // Assume forge command exists and runs without internal errors for this test
-        let result = handler.forge_test().await.expect("Tool call should not panic");
+        let result = handler.mc_test().await.expect("Tool call should not panic");
 
         // Expect success (is_error = false) when forge command runs
         assert_eq!(result.is_error, Some(false), "Expected is_error to be false when forge runs");
@@ -502,7 +500,7 @@ mod tests {
         let (handler, _mock_service) = setup_mock_handler();
 
         // Assume forge command exists but fails internally (non-zero exit code)
-        let result = handler.forge_test().await.expect("Tool call should not panic");
+        let result = handler.mc_test().await.expect("Tool call should not panic");
 
         // Expect error (is_error = true) when forge command fails internally
         assert_eq!(result.is_error, Some(true), "Expected is_error to be true when forge fails");

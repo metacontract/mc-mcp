@@ -9,8 +9,13 @@ A Model Context Protocol (MCP) server for the [metacontract (mc)](https://github
 **mc-mcp** is an extensible MCP server designed for the [metacontract](https://github.com/metacontract/mc) (mc) framework.
 It enables AI-powered smart contract development workflows by exposing tools such as:
 
-- **`forge_test`**: Run Foundry tests (`forge test`) in your workspace.
-- **`search_docs`**: Perform semantic search over mc documentation and user-configured sources, returning structured JSON results.
+- **`mc_search_docs`**: Perform semantic search over mc documentation and user-configured sources, returning structured JSON results.
+- **`mc_test`**: Run Foundry tests (`forge test`) in your workspace.
+- **`mc_search_docs`**: Semantic search over mc documentation and user-configured sources, returning structured JSON results.
+- **`mc_deploy`**: Deploy contracts (with `--broadcast`: production execution, without: dry-run simulation).
+- **`mc_upgrade`**: Upgrade contracts (with `--broadcast`: production execution, without: dry-run simulation).
+- **`mc_init`**: Initialize a new mc project or environment.
+- **`mc_lint`**: Lint project files for best practices and errors.
 
 ---
 
@@ -105,7 +110,7 @@ See [RooCode's documentation](https://github.com/RooVetGit/Roo-Code) for details
 ### 5. Develop your smart contract
 
 - Use your MCP-compatible Agent/IDE to interact with mc-mcp
-- Design, search docs, and run TDD cycles (`forge_test`, `search_docs`, etc.)
+- Design, search docs, and run TDD cycles (`mc_test`, `mc_search_docs`, etc.)
 
 ### Configuration Example
 
