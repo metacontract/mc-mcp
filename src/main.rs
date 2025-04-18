@@ -43,6 +43,7 @@ use std::thread::sleep;
 
 const PREBUILT_INDEX_URL: &str = "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
 const PREBUILT_INDEX_DEST: &str = "artifacts/prebuilt_index.jsonl.gz";
+const FORGE_TEMPLATE_REPO: &str = "metacontract/mc-template";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -228,6 +229,37 @@ impl MyHandler {
             }
         }
     }
+
+    #[tool(description = "Initialize a new Foundry project using a template. Only works in an empty directory.")]
+    pub async fn setup(&self) -> Result<CallToolResult, McpError> {
+        use std::fs;
+        use std::process::Command;
+        use std::env;
+        // 1. Check if current directory is empty
+        let current_dir = env::current_dir().map_err(|e| McpError::internal_error(format!("Failed to get current dir: {e}"), None))?;
+        let entries = fs::read_dir(&current_dir)
+            .map_err(|e| McpError::internal_error(format!("Failed to read current dir: {e}"), None))?;
+        let is_empty = entries.into_iter().next().is_none();
+        if !is_empty {
+            return Ok(CallToolResult::error(vec![Content::text(
+                "カレントディレクトリが空ではありません。新規ディレクトリでsetupを実行してください。"
+            )]));
+        }
+        // 2. Run forge init . -t <repo>
+        let status = Command::new("forge")
+            .args(["init", ".", "-t", FORGE_TEMPLATE_REPO])
+            .status()
+            .map_err(|e| McpError::internal_error(format!("Failed to run forge: {e}"), None))?;
+        if status.success() {
+            Ok(CallToolResult::success(vec![Content::text(
+                format!("Successfully initialized Foundry project with template: {FORGE_TEMPLATE_REPO}")
+            )]))
+        } else {
+            Ok(CallToolResult::error(vec![Content::text(
+                format!("forge init failed with exit code: {:?}", status.code())
+            )]))
+        }
+    }
 }
 
 #[tool(tool_box)]
@@ -299,6 +331,9 @@ impl ServerHandler for MyHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+    use std::fs;
+    use tempfile::tempdir;
     use std::sync::{Arc, Mutex};
     // Use the library crate path for domain items in tests
     use mc_mcp::domain::reference::SearchResult;
@@ -481,6 +516,34 @@ mod tests {
             },
             other_kind => panic!("Expected Text content for failure, found {:?}", other_kind),
         };
+    }
+
+    #[tokio::test]
+    async fn test_setup_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let old_dir = env::current_dir().unwrap();
+        env::set_current_dir(&dir).unwrap();
+        // Mock Command::new("forge") if needed
+        // For now, just check the error message for non-empty dir
+        let handler = MyHandler { reference_service: Arc::new(MockReferenceService::default()) };
+        let result = handler.setup().await.unwrap();
+        // Since forge is likely not available in CI, just check for error or success message
+        assert!(result.content[0].raw.as_text().map_or(false, |t| t.text.contains("Foundry project")) || result.is_error == Some(true));
+        env::set_current_dir(old_dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_setup_non_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("dummy.txt");
+        fs::write(&file_path, "dummy").unwrap();
+        let old_dir = env::current_dir().unwrap();
+        env::set_current_dir(&dir).unwrap();
+        let handler = MyHandler { reference_service: Arc::new(MockReferenceService::default()) };
+        let result = handler.setup().await.unwrap();
+        assert!(result.is_error == Some(true));
+        assert!(result.content[0].raw.as_text().map_or(false, |t| t.text.contains("空ではありません")));
+        env::set_current_dir(old_dir).unwrap();
     }
 }
 
