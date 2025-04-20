@@ -14,6 +14,9 @@ clean-cache:
 fix:
 	cargo fix --allow-dirty --allow-staged
 
+coverage:
+	cargo tarpaulin --out Html --output-dir target/tarpaulin
+
 build-index:
 	run --bin build_index -- --index-name=test_index
 

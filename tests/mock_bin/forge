@@ -1,2 +1,16 @@
 #!/bin/sh
-exit 0
+echo "Mock deploy broadcast script called with: $@" >&2 # Log arguments
+# Check arguments: script <deploy_path> --broadcast --rpc-url <url> --private-key $<env_var>
+if [ "$1" = "script" ] && \
+   [ "$2" = "scripts/Deploy.s.sol" ] && \
+   [ "$3" = "--broadcast" ] && \
+   [ "$4" = "--rpc-url" ] && [ "$5" = "http://localhost:8545" ] && \
+   [ "$6" = "--private-key" ] && [ "$7" = "\$TEST_PRIVATE_KEY" ] && \
+   [ "$#" -eq 7 ]; then
+  echo "Simulating deploy broadcast..."
+  echo "Transaction Hash: 0xmockhashbroadcast" # Mock output
+  exit 0 # Exit successfully
+else
+  echo "Error: Unexpected mock forge call arguments in deploy broadcast success test: $@" >&2
+  exit 1
+fi
