@@ -118,7 +118,9 @@ Create a file named `mcp_config.toml` in your project root:
 ```toml
 # Reference sources for semantic search
 [reference]
-prebuilt_index_path = "artifacts/prebuilt_index.jsonl.gz"
+# The prebuilt index is downloaded to the system cache directory by default.
+# You can override the path here if needed:
+# prebuilt_index_path = "/custom/path/to/prebuilt_index.jsonl.gz"
 
 [[reference.sources]]
 name = "mc-docs"
@@ -145,7 +147,7 @@ rpc_url = "http://localhost:8545" # RPC endpoint URL
 private_key_env_var = "PRIVATE_KEY" # Name of the env var holding the deployer's private key
 ```
 
-- `prebuilt_index_path` ... (optional) Path to a prebuilt index (jsonl or gzipped jsonl). If set, it will be loaded and upserted into Qdrant on startup.
+- `prebuilt_index_path` ... (optional) Path to a prebuilt index (jsonl or gzipped jsonl). If set, it overrides the default cache location. The index will be loaded and upserted into Qdrant on startup.
 - Each `[[reference.sources]]` must have `name`, `source_type` (usually `local`), and `path` (relative to the execution directory).
 - `[scripts].deploy` and `[scripts].upgrade` specify the default Foundry script paths used by the `mc_deploy` and `mc_upgrade` tools respectively.
 - `[scripts].rpc_url` and `[scripts].private_key_env_var` are required when using `mc_deploy` or `mc_upgrade` with the `broadcast: true` argument. `forge` will use these to send the transaction.

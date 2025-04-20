@@ -1,5 +1,7 @@
 [reference]
-prebuilt_index_path = "artifacts/prebuilt_index.jsonl.gz"
+# Default path is now the system's cache directory (e.g., ~/.cache/mc-mcp on Linux).
+# You can uncomment and set a specific path if needed.
+# prebuilt_index_path = "artifacts/prebuilt_index.jsonl.gz"
 
 # [[reference.sources]]
 # name = "mc-docs"

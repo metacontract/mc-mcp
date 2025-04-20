@@ -39,13 +39,13 @@ use log;
 
 use std::thread::sleep;
 use std::time::Duration;
+use std::path::PathBuf; // Add PathBuf import
 
 // Import McpConfig from the library crate
 use mc_mcp::config::McpConfig;
 
 const PREBUILT_INDEX_URL: &str =
     "https://github.com/metacontract/mc-mcp/releases/latest/download/prebuilt_index.jsonl.gz";
-const PREBUILT_INDEX_DEST: &str = "artifacts/prebuilt_index.jsonl.gz";
 const MC_TEMPLATE_REPO: &str = "metacontract/template";
 
 #[tokio::main]
@@ -135,7 +135,8 @@ async fn main() -> Result<()> {
     log::info!("Configured source indexing process started/completed.");
 
     // --- Start MCP Server ---
-    let handler = MyHandler { reference_service, config: Arc::new(config) };
+    let config_arc = Arc::new(config); // Create Arc<McpConfig> for the handler
+    let handler = MyHandler { reference_service, config: config_arc.clone() }; // Pass Arc to handler
     let transport = (stdin(), stdout());
 
     log::info!("Starting MCP server...");
@@ -151,7 +152,27 @@ async fn main() -> Result<()> {
     let shutdown_reason = server_handle.waiting().await?;
     log::info!("mc-mcp server finished. Reason: {:?}", shutdown_reason);
 
-    download_if_not_exists(PREBUILT_INDEX_URL, PREBUILT_INDEX_DEST)?;
+    // --- Download prebuilt index if configured and not exists ---
+    // Use the config loaded earlier (now in config_arc)
+    if let Some(dest_path_buf) = &config_arc.reference.prebuilt_index_path { // Get path from config
+        // download_if_not_exists takes &str, so convert PathBuf
+        if let Some(dest_str) = dest_path_buf.to_str() {
+            match download_if_not_exists(PREBUILT_INDEX_URL, dest_str) {
+                Ok(_) => log::info!("Checked/Downloaded prebuilt index to {:?}", dest_path_buf),
+                Err(e) => log::error!(
+                    "Failed to check/download prebuilt index to {:?}: {}",
+                    dest_path_buf, e
+                ),
+            }
+        } else {
+            log::error!(
+                "Configured prebuilt index path is not valid UTF-8: {:?}",
+                dest_path_buf
+            );
+        }
+    } else {
+        log::info!("Skipping prebuilt index download check as no path is configured.");
+    }
 
     Ok(())
 }

@@ -5,6 +5,8 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use directories::ProjectDirs;
+use log;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum SourceType {
@@ -70,10 +72,37 @@ pub struct McpConfig {
 
 // Example function to load config (will be used in main.rs)
 pub fn load_config() -> Result<McpConfig> {
+    // Determine the default prebuilt index path using ProjectDirs
+    let default_prebuilt_path = ProjectDirs::from("xyz", "ecdysis", "mc-mcp")
+        .map(|dirs| {
+            // Ensure cache directory exists
+            let cache_dir = dirs.cache_dir();
+            if !cache_dir.exists() {
+                if let Err(e) = std::fs::create_dir_all(cache_dir) {
+                    log::error!("Failed to create cache directory {:?}: {}", cache_dir, e);
+                    // Fallback if creation fails
+                    return PathBuf::from("artifacts/prebuilt_index.jsonl.gz");
+                }
+            }
+            cache_dir.join("prebuilt_index.jsonl.gz")
+        })
+        .unwrap_or_else(|| {
+            log::warn!("Could not determine cache directory. Falling back to 'artifacts/'.");
+            // Attempt to create artifacts directory if it doesn't exist as a fallback
+            let fallback_path = PathBuf::from("artifacts");
+            if !fallback_path.exists() {
+                 if let Err(e) = std::fs::create_dir_all(&fallback_path) {
+                     log::error!("Failed to create fallback artifacts directory {:?}: {}", fallback_path, e);
+                 }
+            }
+            fallback_path.join("prebuilt_index.jsonl.gz")
+        });
+
+
     // Create the base config with the desired default prebuilt index path
     let default_config = McpConfig {
         reference: ReferenceConfig {
-            prebuilt_index_path: Some(PathBuf::from("artifacts/prebuilt_index.jsonl.gz")),
+            prebuilt_index_path: Some(default_prebuilt_path), // Use the determined path
             sources: vec![], // Keep sources empty by default
         },
         scripts: ScriptsConfig::default(), // Use default for scripts
@@ -108,11 +137,16 @@ mod tests {
     #[test]
     fn test_load_config_default() {
         Jail::expect_with(|_jail| {
+            // Need to mock or calculate the expected cache path for the test environment
+            let expected_default_path = ProjectDirs::from("xyz", "ecdysis", "mc-mcp")
+                .map(|dirs| dirs.cache_dir().join("prebuilt_index.jsonl.gz"))
+                .unwrap_or_else(|| PathBuf::from("artifacts/prebuilt_index.jsonl.gz")); // Fallback for test consistency
+
             let config = load_config().expect("Failed to load default config");
             assert!(config.reference.sources.is_empty());
             assert_eq!(
                 config.reference.prebuilt_index_path,
-                Some(PathBuf::from("artifacts/prebuilt_index.jsonl.gz")) // Check the default path is set correctly
+                Some(expected_default_path) // Check the potentially dynamic default path
             );
             // Check default scripts config
             assert!(config.scripts.deploy.is_none());
@@ -192,8 +226,6 @@ upgrade = "scripts/MyUpgrade.s.sol"
             jail.create_file(
                 "mcp_config.toml",
                 r#"
-# prebuilt_index_path is omitted
-[reference]
 # no prebuilt_index_path here
 
 [[reference.sources]]
@@ -202,11 +234,16 @@ source_type = "local"
 path = "./docs_folder"
                 "#,
             )?;
+             // Need to mock or calculate the expected cache path for the test environment
+            let expected_default_path = ProjectDirs::from("xyz", "ecdysis", "mc-mcp")
+                .map(|dirs| dirs.cache_dir().join("prebuilt_index.jsonl.gz"))
+                .unwrap_or_else(|| PathBuf::from("artifacts/prebuilt_index.jsonl.gz")); // Fallback for test consistency
+
             let config = load_config().expect("Failed to load TOML config without prebuilt path");
             // Should still default to the specified path because it's set in the base layer
             assert_eq!(
                 config.reference.prebuilt_index_path,
-                Some(PathBuf::from("artifacts/prebuilt_index.jsonl.gz"))
+                Some(expected_default_path) // Check the potentially dynamic default path
             );
             assert_eq!(config.reference.sources.len(), 1);
             assert_eq!(config.reference.sources[0].name, "docs");
