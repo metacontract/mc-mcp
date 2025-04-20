@@ -21,7 +21,7 @@ fn main() -> anyhow::Result<()> {
     // 引数: 入力ディレクトリ, 出力ファイル
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
-        eprintln!("Usage: build_index <input_docs_dir> <output_jsonl>");
+        log::error!("Usage: build_index <input_docs_dir> <output_jsonl>");
         std::process::exit(1);
     }
     let input_dir = PathBuf::from(&args[1]);
@@ -53,6 +53,6 @@ fn main() -> anyhow::Result<()> {
             total_chunks += 1;
         }
     }
-    println!("Wrote {} chunks to {:?}", total_chunks, output_path);
+    log::info!("Wrote {} chunks to {:?}", total_chunks, output_path);
     Ok(())
 }

@@ -49,7 +49,7 @@ const MC_TEMPLATE_REPO: &str = "metacontract/template";
 async fn main() -> Result<()> {
     // check if qdrant is running
     if let Err(e) = ensure_qdrant_via_docker() {
-        eprintln!("{e}");
+        log::error!("{e}");
         std::process::exit(1);
     }
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace"))
@@ -711,7 +711,7 @@ mod tests {
     impl ReferenceService for MockReferenceService {
         // index_sources implementation
         async fn index_sources(&self, sources: &[DocumentSource]) -> Result<()> {
-            println!(
+            log::info!(
                 "MockReferenceService: index_sources called with {} sources",
                 sources.len()
             );
@@ -727,7 +727,7 @@ mod tests {
             query: mc_mcp::domain::reference::SearchQuery,
             _score_threshold: Option<f32>,
         ) -> Result<Vec<SearchResult>> {
-            println!(
+            log::info!(
                 "MockReferenceService: search_documents called with query: {:?}",
                 query
             );
@@ -1158,34 +1158,34 @@ fi
 
 
         // --- Debug: Check if mock script file actually exists ---
-        println!("Checking existence of: {}", forge_script_on_mock_bin.display());
+        log::info!("Checking existence of: {}", forge_script_on_mock_bin.display());
         if forge_script_on_mock_bin.exists() {
-            println!("Mock script file FOUND.");
+            log::info!("Mock script file FOUND.");
 
             // --- Add execute permission ---
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                println!("Setting execute permission on mock script...");
+                log::info!("Setting execute permission on mock script...");
                 let metadata = std::fs::metadata(&forge_script_on_mock_bin).expect("Failed to get metadata for mock script");
                 let mut perms = metadata.permissions();
                 if perms.mode() & 0o111 == 0 { // Check if execute bit is NOT set
                     perms.set_mode(perms.mode() | 0o111); // Add execute permission for user, group, others
                     std::fs::set_permissions(&forge_script_on_mock_bin, perms).expect("Failed to set permissions on mock script");
-                    println!("Execute permission set.");
+                    log::info!("Execute permission set.");
                 } else {
-                    println!("Execute permission already set.");
+                    log::info!("Execute permission already set.");
                 }
             }
             // --- End Add execute permission ---
 
         } else {
-            println!("Mock script file NOT FOUND!");
+            log::error!("Mock script file NOT FOUND!");
             // もし見つからなかったら、ls の結果も見てみる
             let ls_output = std::process::Command::new("ls").arg("-al").arg(mock_bin_path.display().to_string()).output();
             match ls_output {
-                Ok(out) => println!("ls -al {}:\n{}", mock_bin_path.display(), String::from_utf8_lossy(&out.stdout)),
-                Err(e) => println!("Failed to run ls: {}", e),
+                Ok(out) => log::error!("ls -al {}:\n{}", mock_bin_path.display(), String::from_utf8_lossy(&out.stdout)),
+                Err(e) => log::error!("Failed to run ls: {}", e),
             }
         }
         // --- End Debug ---
@@ -1197,23 +1197,23 @@ fi
         std::env::set_var("PATH", format!("{}:{}", mock_bin_abs_path_str, original_path));
 
         // --- Debugging: Check which forge is used and run mock script directly ---
-        println!("--- Debug Info: test_mc_deploy_broadcast_success ---");
+        log::info!("--- Debug Info: test_mc_deploy_broadcast_success ---");
         let which_output = std::process::Command::new("which").arg("forge").output().expect("Failed to run which forge");
-        println!("which forge stdout: {}", String::from_utf8_lossy(&which_output.stdout));
-        println!("which forge stderr: {}", String::from_utf8_lossy(&which_output.stderr));
-        println!("which forge status: {:?}", which_output.status.code());
+        log::info!("which forge stdout: {}", String::from_utf8_lossy(&which_output.stdout));
+        log::info!("which forge stderr: {}", String::from_utf8_lossy(&which_output.stderr));
+        log::info!("which forge status: {:?}", which_output.status.code());
 
-        println!("Executing mock script directly: {} script {} --broadcast", forge_script_path_mock_abs.display(), expected_script_path);
+        log::info!("Executing mock script directly: {} script {} --broadcast", forge_script_path_mock_abs.display(), expected_script_path);
         let mock_run_output = std::process::Command::new(forge_script_path_mock_abs)
             .arg("script")
             .arg(expected_script_path)
             .arg("--broadcast")
             .output()
             .expect("Failed to run mock forge script directly");
-        println!("Mock script stdout: {}", String::from_utf8_lossy(&mock_run_output.stdout));
-        println!("Mock script stderr: {}", String::from_utf8_lossy(&mock_run_output.stderr));
-        println!("Mock script status: {:?}", mock_run_output.status.code());
-        println!("--- End Debug Info ---");
+        log::info!("Mock script stdout: {}", String::from_utf8_lossy(&mock_run_output.stdout));
+        log::info!("Mock script stderr: {}", String::from_utf8_lossy(&mock_run_output.stderr));
+        log::info!("Mock script status: {:?}", mock_run_output.status.code());
+        log::info!("--- End Debug Info ---");
         // --- End Debugging ---
 
         let args = McDeployArgs {
@@ -1531,34 +1531,34 @@ fi
 
 
         // --- Debug: Check if mock script file actually exists ---
-        println!("Checking existence of: {}", forge_script_on_mock_bin.display());
+        log::info!("Checking existence of: {}", forge_script_on_mock_bin.display());
         if forge_script_on_mock_bin.exists() {
-            println!("Mock script file FOUND.");
+            log::info!("Mock script file FOUND.");
 
             // --- Add execute permission ---
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                println!("Setting execute permission on mock script...");
+                log::info!("Setting execute permission on mock script...");
                 let metadata = std::fs::metadata(&forge_script_on_mock_bin).expect("Failed to get metadata for mock script");
                 let mut perms = metadata.permissions();
                 if perms.mode() & 0o111 == 0 { // Check if execute bit is NOT set
                     perms.set_mode(perms.mode() | 0o111); // Add execute permission for user, group, others
                     std::fs::set_permissions(&forge_script_on_mock_bin, perms).expect("Failed to set permissions on mock script");
-                    println!("Execute permission set.");
+                    log::info!("Execute permission set.");
                 } else {
-                    println!("Execute permission already set.");
+                    log::info!("Execute permission already set.");
                 }
             }
             // --- End Add execute permission ---
 
         } else {
-            println!("Mock script file NOT FOUND!");
+            log::error!("Mock script file NOT FOUND!");
             // もし見つからなかったら、ls の結果も見てみる
             let ls_output = std::process::Command::new("ls").arg("-al").arg(mock_bin_path.display().to_string()).output();
             match ls_output {
-                Ok(out) => println!("ls -al {}:\n{}", mock_bin_path.display(), String::from_utf8_lossy(&out.stdout)),
-                Err(e) => println!("Failed to run ls: {}", e),
+                Ok(out) => log::error!("ls -al {}:\n{}", mock_bin_path.display(), String::from_utf8_lossy(&out.stdout)),
+                Err(e) => log::error!("Failed to run ls: {}", e),
             }
         }
         // --- End Debug ---
@@ -1570,23 +1570,23 @@ fi
         std::env::set_var("PATH", format!("{}:{}", mock_bin_abs_path_str, original_path));
 
         // --- Debugging: Check which forge is used and run mock script directly ---
-        println!("--- Debug Info: test_mc_upgrade_broadcast_success ---");
+        log::info!("--- Debug Info: test_mc_upgrade_broadcast_success ---");
         let which_output = std::process::Command::new("which").arg("forge").output().expect("Failed to run which forge");
-        println!("which forge stdout: {}", String::from_utf8_lossy(&which_output.stdout));
-        println!("which forge stderr: {}", String::from_utf8_lossy(&which_output.stderr));
-        println!("which forge status: {:?}", which_output.status.code());
+        log::info!("which forge stdout: {}", String::from_utf8_lossy(&which_output.stdout));
+        log::info!("which forge stderr: {}", String::from_utf8_lossy(&which_output.stderr));
+        log::info!("which forge status: {:?}", which_output.status.code());
 
-        println!("Executing mock script directly: {} script {} --broadcast", forge_script_path_mock_abs.display(), expected_script_path);
+        log::info!("Executing mock script directly: {} script {} --broadcast", forge_script_path_mock_abs.display(), expected_script_path);
         let mock_run_output = std::process::Command::new(forge_script_path_mock_abs)
             .arg("script")
             .arg(expected_script_path)
             .arg("--broadcast")
             .output()
             .expect("Failed to run mock forge script directly");
-        println!("Mock script stdout: {}", String::from_utf8_lossy(&mock_run_output.stdout));
-        println!("Mock script stderr: {}", String::from_utf8_lossy(&mock_run_output.stderr));
-        println!("Mock script status: {:?}", mock_run_output.status.code());
-        println!("--- End Debug Info ---");
+        log::info!("Mock script stdout: {}", String::from_utf8_lossy(&mock_run_output.stdout));
+        log::info!("Mock script stderr: {}", String::from_utf8_lossy(&mock_run_output.stderr));
+        log::info!("Mock script status: {:?}", mock_run_output.status.code());
+        log::info!("--- End Debug Info ---");
         // --- End Debugging ---
 
         let args = McUpgradeArgs { broadcast: Some(true) };
@@ -1754,10 +1754,10 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
         .map_err(|e| format!("Failed to execute docker ps: {e}"))?;
     let ps_stdout = String::from_utf8_lossy(&ps.stdout);
     if ps_stdout.contains("qdrant") {
-        eprintln!("✅ Qdrant is already running in Docker.");
+        log::info!("✅ Qdrant is already running in Docker.");
     } else {
         // 3. Start Qdrant container
-        eprintln!("Qdrant container not found. Starting Qdrant in Docker...");
+        log::info!("Qdrant container not found. Starting Qdrant in Docker...");
         let run = std::process::Command::new("docker")
             .args([
                 "run",
@@ -1778,7 +1778,7 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
                 String::from_utf8_lossy(&run.stderr)
             ));
         }
-        eprintln!("Qdrant container started.");
+        log::info!("Qdrant container started.");
     }
 
     // 4. Health check (HTTP endpoint retry)
@@ -1789,12 +1789,12 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
             .call()
         {
             Ok(resp) if resp.status() == 200 => {
-                eprintln!("✅ Qdrant is running and connected!");
+                log::info!("✅ Qdrant is running and connected!");
                 return Ok(());
             }
             _ => {
-                eprintln!("Waiting for Qdrant to start... (Retry {i}/5)");
-                sleep(Duration::from_secs(2));
+                log::info!("Waiting for Qdrant to start... (Retry {i}/5)");
+                std::thread::sleep(std::time::Duration::from_secs(2));
             }
         }
     }

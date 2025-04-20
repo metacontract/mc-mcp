@@ -52,7 +52,7 @@ async fn setup_qdrant() -> Result<(VectorDb, ContainerAsync<GenericImage>)> {
         if !error_string.contains("already exists") && !error_string.contains("already created") {
             return Err(e.into());
         }
-        println!(
+        log::warn!(
             "Collection {} already exists, likely due to race condition. Continuing.",
             collection_name
         );
@@ -100,7 +100,7 @@ async fn test_vector_db_upsert_and_search() -> Result<()> {
     tokio::time::sleep(Duration::from_millis(500)).await;
     let query_vector = vec![0.15, 0.25, 0.6];
     let results = vector_db.search(query_vector.clone(), 5, Some(0.5)).await?;
-    println!("Search Results: {:?}", results);
+    log::info!("Search Results: {:?}", results);
     assert!(!results.is_empty(), "Search should return results");
     assert_eq!(results.len(), 2, "Expected 2 results above threshold 0.5");
     let top_result = &results[0];

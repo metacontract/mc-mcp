@@ -40,7 +40,7 @@ pub fn load_documents(docs_path: Option<PathBuf>) -> Result<SimpleDocumentIndex,
     let default_path = PathBuf::from("metacontract/mc/site/docs");
     let target_path = docs_path.unwrap_or(default_path);
 
-    println!("Loading documents from: {:?}", target_path);
+    log::info!("Loading documents from: {:?}", target_path);
 
     if !target_path.is_dir() {
         return Err(format!(
@@ -65,13 +65,13 @@ pub fn load_documents(docs_path: Option<PathBuf>) -> Result<SimpleDocumentIndex,
                 index.insert(path_str, (text, "mc-docs".to_string())); // sourceは現状固定
             }
             Err(e) => {
-                eprintln!("Failed to read file {}: {}", path_str, e);
+                log::error!("Failed to read file {}: {}", path_str, e);
             }
         }
     }
 
     if index.is_empty() {
-        println!(
+        log::warn!(
             "Warning: No markdown files found or loaded from {:?}",
             target_path
         );
@@ -162,7 +162,7 @@ pub fn load_documents_from_multiple_sources(
                     index.insert(path_str, (text, source.clone()));
                 }
                 Err(e) => {
-                    eprintln!("Failed to read file {}: {}", path_str, e);
+                    log::error!("Failed to read file {}: {}", path_str, e);
                 }
             }
         }
@@ -235,14 +235,14 @@ pub fn load_documents_from_source(dir_path: &PathBuf) -> Result<HashMap<String, 
 /// 指定URLからprebuilt_index.jsonl(.gz)をダウンロード（既存ならスキップ）
 pub fn download_if_not_exists(url: &str, dest: &str) -> anyhow::Result<()> {
     if PathBuf::from(dest).exists() {
-        println!("Index file already exists: {}", dest);
+        log::info!("Index file already exists: {}", dest);
         return Ok(());
     }
-    println!("Downloading index from {} ...", url);
+    log::info!("Downloading index from {} ...", url);
     let mut resp = reqwest::blocking::get(url)?;
     let mut out = File::create(dest)?;
     copy(&mut resp, &mut out)?;
-    println!("Downloaded index to {}", dest);
+    log::info!("Downloaded index to {}", dest);
     Ok(())
 }
 
@@ -311,7 +311,7 @@ mod tests {
     fn test_load_documents_default_path_not_exists() {
         // Need to ensure the default path doesn't exist for this test
         if PathBuf::from("metacontract/mc/site/docs").exists() {
-            println!(
+            log::info!(
                 "Skipping test_load_documents_default_path_not_exists because default path exists."
             );
             return;
