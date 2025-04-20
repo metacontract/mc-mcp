@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, Context};
 use figment::{
     providers::{Env, Format, Serialized, Toml},
     Figment,
@@ -6,7 +6,22 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use directories::ProjectDirs;
-use log;
+
+// Define a constant for the repository
+pub const GITHUB_REPO_OWNER: &str = "metacontract";
+pub const GITHUB_REPO_NAME: &str = "mc-mcp";
+
+// Define constants for the artifact names
+const PREBUILT_INDEX_FILENAME: &str = "prebuilt_index.jsonl.gz";
+pub const DOCS_ARCHIVE_FILENAME: &str = "docs.tar.gz";
+
+// Function to construct the download URL
+pub fn get_latest_release_download_url(owner: &str, repo: &str, asset_name: &str) -> String {
+    format!(
+        "https://github.com/{}/{}/releases/latest/download/{}",
+        owner, repo, asset_name
+    )
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum SourceType {
@@ -31,12 +46,15 @@ pub struct DocumentSource {
     pub github_path: Option<String>, // For Github type: path within repo (e.g., "site/docs")
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReferenceConfig {
     // Default source is always mc-docs, maybe handled separately or require explicit definition?
     // Let's require explicit definition for now for clarity.
     pub sources: Vec<DocumentSource>,
+    #[serde(rename = "prebuilt_index_path")]
     pub prebuilt_index_path: Option<PathBuf>, // Path relative to mc-docs source path? Or absolute? Let's try relative to config for now.
+    #[serde(rename = "docs_archive_path")]
+    pub docs_archive_path: Option<PathBuf>, // Path for the docs archive
                                               // TODO: Add embedding model config, Qdrant config here? Or keep separate?
                                               // Keep separate for now, loaded via env vars in main.rs
 }
@@ -70,41 +88,28 @@ pub struct McpConfig {
     // Add other config sections like ToolConfig later
 }
 
+// Implement Default for ReferenceConfig to handle optional prebuilt_index_path
+impl Default for ReferenceConfig {
+    fn default() -> Self {
+        // Calculate default cache path *only here*
+        let default_index_path = ProjectDirs::from("xyz", "ecdysis", "mc-mcp")
+            .map(|dirs| dirs.cache_dir().join(PREBUILT_INDEX_FILENAME));
+        let default_docs_path = ProjectDirs::from("xyz", "ecdysis", "mc-mcp")
+            .map(|dirs| dirs.cache_dir().join(DOCS_ARCHIVE_FILENAME));
+
+        Self {
+            sources: Vec::new(),
+            prebuilt_index_path: default_index_path,
+            docs_archive_path: default_docs_path, // Set default docs path
+        }
+    }
+}
+
 // Example function to load config (will be used in main.rs)
 pub fn load_config() -> Result<McpConfig> {
-    // Determine the default prebuilt index path using ProjectDirs
-    let default_prebuilt_path = ProjectDirs::from("xyz", "ecdysis", "mc-mcp")
-        .map(|dirs| {
-            // Ensure cache directory exists
-            let cache_dir = dirs.cache_dir();
-            if !cache_dir.exists() {
-                if let Err(e) = std::fs::create_dir_all(cache_dir) {
-                    log::error!("Failed to create cache directory {:?}: {}", cache_dir, e);
-                    // Fallback if creation fails
-                    return PathBuf::from("artifacts/prebuilt_index.jsonl.gz");
-                }
-            }
-            cache_dir.join("prebuilt_index.jsonl.gz")
-        })
-        .unwrap_or_else(|| {
-            log::warn!("Could not determine cache directory. Falling back to 'artifacts/'.");
-            // Attempt to create artifacts directory if it doesn't exist as a fallback
-            let fallback_path = PathBuf::from("artifacts");
-            if !fallback_path.exists() {
-                 if let Err(e) = std::fs::create_dir_all(&fallback_path) {
-                     log::error!("Failed to create fallback artifacts directory {:?}: {}", fallback_path, e);
-                 }
-            }
-            fallback_path.join("prebuilt_index.jsonl.gz")
-        });
-
-
-    // Create the base config with the desired default prebuilt index path
+    // Use ReferenceConfig::default() to get defaults including calculated paths
     let default_config = McpConfig {
-        reference: ReferenceConfig {
-            prebuilt_index_path: Some(default_prebuilt_path), // Use the determined path
-            sources: vec![], // Keep sources empty by default
-        },
+        reference: ReferenceConfig::default(),
         scripts: ScriptsConfig::default(), // Use default for scripts
     };
 
@@ -117,13 +122,25 @@ pub fn load_config() -> Result<McpConfig> {
         // Use double underscores for nesting (e.g., MCP_REFERENCE__SOURCES__0__NAME="...")
         .merge(Env::prefixed("MCP_").split("__"));
 
-    let config: McpConfig = figment.extract()?;
+    let config: McpConfig = figment.extract().context("Failed to extract McpConfig")?;
     validate_config(&config)?;
     Ok(config)
 }
 
 // Placeholder validation function
-fn validate_config(_config: &McpConfig) -> Result<()> {
+fn validate_config(config: &McpConfig) -> Result<()> {
+    // Validate that if prebuilt_index_path is Some, it's not empty
+    if let Some(path) = &config.reference.prebuilt_index_path {
+        if path.as_os_str().is_empty() {
+            return Err(anyhow::anyhow!("Configured prebuilt_index_path cannot be empty"));
+        }
+    }
+    // Validate that if docs_archive_path is Some, it's not empty
+    if let Some(path) = &config.reference.docs_archive_path {
+        if path.as_os_str().is_empty() {
+            return Err(anyhow::anyhow!("Configured docs_archive_path cannot be empty"));
+        }
+    }
     // TODO: Add actual validation logic (e.g., check paths exist if SourceType::Local)
     Ok(())
 }

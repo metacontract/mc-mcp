@@ -1,15 +1,16 @@
 use super::markdown::parse_markdown_to_text; // Assuming markdown.rs exists
-use anyhow::Result;
+use anyhow::{Context, Result};
 use flate2::read::GzDecoder;
 use log::{debug, error, warn};
 use reqwest;
 use serde_json;
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::copy;
+use std::io::{copy, Read};
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+use tar::Archive;
 
 // Import DocumentToUpsert from the correct module
 use crate::infrastructure::vector_db::DocumentToUpsert;
@@ -243,6 +244,61 @@ pub fn download_if_not_exists(url: &str, dest: &str) -> anyhow::Result<()> {
     copy(&mut resp, &mut out)?;
     println!("Downloaded index to {}", dest);
     Ok(())
+}
+
+pub fn load_content_from_archive(
+    archive_path: &Path,
+    target_file_path: &str,
+) -> Result<Option<String>> {
+    let file = File::open(archive_path)
+        .with_context(|| format!("Failed to open archive file: {:?}", archive_path))?;
+    let decoder = GzDecoder::new(file);
+    let mut archive = Archive::new(decoder);
+
+    for entry_result in archive.entries()? {
+        let mut entry =
+            entry_result.with_context(|| format!("Failed to read entry from archive {:?}", archive_path))?;
+
+        if let Ok(entry_path) = entry.path() {
+            let entry_path_buf = entry_path.to_path_buf();
+            let relative_target_path = PathBuf::from(target_file_path);
+            let path_components: Vec<_> = relative_target_path.components().collect();
+            let docs_pos = path_components.iter().position(|&c| c.as_os_str() == "docs");
+
+            let found_path: Option<PathBuf> = if let Some(pos) = docs_pos {
+                let path_inside_archive: PathBuf = path_components[(pos)..].iter().collect();
+                log::trace!("Comparing archive path {:?} with target path inside archive {:?}", entry_path_buf, path_inside_archive);
+                if entry_path_buf == path_inside_archive {
+                    Some(entry_path_buf) // Store the matched path
+                } else {
+                    None
+                }
+            } else {
+                log::trace!("Comparing archive path {:?} with target path directly {:?}", entry_path_buf, relative_target_path);
+                if entry_path_buf == relative_target_path {
+                    Some(entry_path_buf) // Store the matched path
+                } else {
+                    None
+                }
+            };
+
+            // If a path was found, now read the content using the mutable borrow
+            if let Some(found_entry_path) = found_path {
+                let mut content = String::new();
+                entry.read_to_string(&mut content).with_context(|| {
+                    format!("Failed to read content from entry: {:?}", found_entry_path)
+                })?;
+                return Ok(Some(content));
+            }
+        }
+    }
+
+    log::warn!(
+        "File not found in archive {:?}: {}",
+        archive_path,
+        target_file_path
+    );
+    Ok(None) // File not found in the archive
 }
 
 #[cfg(test)]

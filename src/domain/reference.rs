@@ -29,6 +29,7 @@ pub struct SearchResult {
     pub source: Option<String>, // Source identifier (e.g., "mc-docs", "local-project") - Made optional
     pub content_chunk: String,  // The actual text chunk that matched
     pub metadata: Option<serde_json::Value>, // Optional metadata associated with the chunk
+    pub document_content: Option<String>, // Full content of the document
                                 // pub fragment: Option<DocumentFragment>, // Removed/Replaced by content_chunk and metadata
 }
 

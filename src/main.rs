@@ -25,7 +25,7 @@ use mc_mcp::config; // Import config module directly
 use mc_mcp::domain; // Import domain for SearchQuery
 use mc_mcp::domain::reference::ReferenceService;
 use mc_mcp::domain::vector_repository::VectorRepository;
-use mc_mcp::file_system; // Import file_system module directly
+use mc_mcp::file_system;
 use mc_mcp::infrastructure::embedding::EmbeddingGenerator;
 use mc_mcp::infrastructure::file_system::download_if_not_exists;
 use mc_mcp::infrastructure::vector_db::{qdrant_client, VectorDb};
@@ -34,12 +34,9 @@ use mc_mcp::infrastructure::EmbeddingModel;
 use anyhow::Result;
 use env_logger;
 use log;
-// Add imports for Qdrant types used in mock impl
-// Import BoxFuture for mock impl signature
 
 use std::thread::sleep;
 use std::time::Duration;
-use std::path::PathBuf; // Add PathBuf import
 
 // Import McpConfig from the library crate
 use mc_mcp::config::McpConfig;
@@ -99,6 +96,42 @@ async fn main() -> Result<()> {
         log::info!("Skipping prebuilt index download check as no path is configured.");
     }
 
+    // --- Download Docs Archive (If Configured and Not Exists) ---
+    if let Some(docs_path_buf) = &config_arc.reference.docs_archive_path {
+        log::info!("Checking/Downloading docs archive to {:?}...", docs_path_buf);
+        if let Some(docs_str) = docs_path_buf.to_str() {
+            // Ensure parent directory exists
+            if let Some(parent_dir) = docs_path_buf.parent() {
+                if !parent_dir.exists() {
+                    if let Err(e) = std::fs::create_dir_all(parent_dir) {
+                        log::error!("Failed to create directory for docs archive {:?}: {}", parent_dir, e);
+                    }
+                }
+            }
+
+            let docs_archive_url = config::get_latest_release_download_url(
+                config::GITHUB_REPO_OWNER,
+                config::GITHUB_REPO_NAME,
+                config::DOCS_ARCHIVE_FILENAME,
+            );
+            match download_if_not_exists(&docs_archive_url, docs_str) {
+                Ok(_) => log::info!("Checked/Downloaded docs archive to {:?}", docs_path_buf),
+                Err(e) => log::error!(
+                    "Failed to check/download docs archive to {:?}: {}",
+                    docs_path_buf,
+                    e
+                ),
+            }
+        } else {
+            log::error!(
+                "Configured docs archive path is not valid UTF-8: {:?}",
+                docs_path_buf
+            );
+        }
+    } else {
+        log::info!("Skipping docs archive download check as no path is configured.");
+    }
+
     // --- Dependency Injection Setup (Moved earlier to access vector_db) ---
     let qdrant_url =
         std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6334".to_string());
@@ -152,7 +185,7 @@ async fn main() -> Result<()> {
     }
 
     // --- Initialize Reference Service (after potential prebuilt index loading) ---
-    let reference_service = Arc::new(ReferenceServiceImpl::new(embedder, vector_db.clone()));
+    let reference_service = Arc::new(ReferenceServiceImpl::new(embedder, vector_db.clone(), config_arc.clone())); // Add config_arc.clone()
 
     // --- Initial Indexing from configured sources (after potential prebuilt index loading) ---
     log::info!(
@@ -760,11 +793,12 @@ mod tests {
             source: Some("SourceA".to_string()),
             content_chunk: "Chunk 1 content".to_string(),
             metadata: Some(json!({ "tag": "test" })),
+            document_content: Some("Full document content for a.md".to_string()), // Add mock document content
         };
         mock_service.set_search_results(vec![mock_result.clone()]);
 
         let args = SearchDocsArgs {
-            query: "test query".to_string(),
+            query: "test query".to_string(), // Ensure query is String
             limit: Some(3),
         };
         let result = handler
@@ -791,6 +825,7 @@ mod tests {
                 assert_eq!(parsed_results[0].source, mock_result.source);
                 assert_eq!(parsed_results[0].content_chunk, mock_result.content_chunk);
                 assert_eq!(parsed_results[0].metadata, mock_result.metadata);
+                assert_eq!(parsed_results[0].document_content, mock_result.document_content); // Add assertion for document_content
             }
             /* // Comment out Json variant as it's not found in rmcp v0.1.5
             RawContent::Json { json } => {

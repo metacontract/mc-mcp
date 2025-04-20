@@ -8,7 +8,7 @@ use crate::infrastructure::EmbeddingGenerator; // Keep this one
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 // Keep used log macros
-use log::{error, info};
+use log::{error, info, warn, debug};
 // Remove unused Value import
 // use serde_json::Value;
 
@@ -21,10 +21,10 @@ use crate::domain::vector_repository::VectorRepository;
 use crate::domain::reference::ReferenceService;
 // Remove unused ReferenceConfig
 // use crate::config::ReferenceConfig;
-use crate::config::{DocumentSource, SourceType};
+use crate::config::{DocumentSource, SourceType, McpConfig};
 // Remove unused load_documents_from_multiple_sources
 // use crate::infrastructure::file_system::load_documents_from_multiple_sources;
-use crate::infrastructure::file_system::load_documents_from_source;
+use crate::infrastructure::file_system::{load_documents_from_source, load_content_from_archive};
 // Use the concrete DocumentToUpsert from vector_db
 use crate::infrastructure::vector_db::DocumentToUpsert;
 // use async_trait::async_trait;
@@ -38,14 +38,16 @@ use qdrant_client::qdrant::{PointStruct, ScoredPoint};
 pub struct ReferenceServiceImpl {
     embedder: Arc<EmbeddingGenerator>,
     vector_db: Arc<dyn VectorRepository>,
+    config: Arc<McpConfig>,
     // Configuration might be needed, e.g., chunk size, model name
 }
 
 impl ReferenceServiceImpl {
-    pub fn new(embedder: Arc<EmbeddingGenerator>, vector_db: Arc<dyn VectorRepository>) -> Self {
+    pub fn new(embedder: Arc<EmbeddingGenerator>, vector_db: Arc<dyn VectorRepository>, config: Arc<McpConfig>) -> Self {
         Self {
             embedder,
             vector_db,
+            config,
         }
     }
 
@@ -187,7 +189,7 @@ impl ReferenceService for ReferenceServiceImpl {
                     }
                 }
                 SourceType::Github => {
-                    
+
                     use std::process::Command;
                     use tempfile::tempdir;
                     let repo = match &source.repo {
@@ -329,7 +331,43 @@ impl ReferenceService for ReferenceServiceImpl {
             }
         };
 
-        // if the sources filter is specified, post-filter the results
+        // 3. Load document content from archive if available
+        if let Some(archive_path) = &self.config.reference.docs_archive_path {
+            if archive_path.exists() {
+                for result in results.iter_mut() {
+                    match load_content_from_archive(archive_path, &result.file_path) {
+                        Ok(Some(content)) => {
+                            result.document_content = Some(content);
+                        }
+                        Ok(None) => {
+                            // File not found in archive, log warning but continue
+                            warn!(
+                                "Document content not found in archive {:?} for file: {}",
+                                archive_path,
+                                result.file_path
+                            );
+                            // Keep document_content as None
+                        }
+                        Err(e) => {
+                            // Error reading archive or file content, log error but continue
+                            error!(
+                                "Failed to load content for {} from archive {:?}: {}",
+                                result.file_path,
+                                archive_path,
+                                e
+                            );
+                            // Keep document_content as None
+                        }
+                    }
+                }
+            } else {
+                warn!("Docs archive path configured but not found: {:?}", archive_path);
+            }
+        } else {
+            debug!("Docs archive path not configured, skipping content loading.");
+        }
+
+        // 4. Post-filter results by source if specified
         if let Some(ref sources) = query.sources {
             results.retain(|r| r.source.as_ref().is_some_and(|s| sources.contains(s)));
         }
@@ -369,8 +407,8 @@ mod tests {
     use anyhow::Result;
     use fastembed::EmbeddingModel;
     use serial_test::serial;
-    
-    
+
+
     // Import EmbeddingGenerator directly
     // use crate::infrastructure::embedding::EmbeddingGenerator;
     // Import EmbeddingModel directly from fastembed as suggested
@@ -433,7 +471,7 @@ mod tests {
     ) {
         let embedder = Arc::new(EmbeddingGenerator::new(EmbeddingModel::AllMiniLML6V2).unwrap());
         let mock_vector_db = Arc::new(MockVectorRepository::new());
-        let service = ReferenceServiceImpl::new(embedder.clone(), mock_vector_db.clone() as Arc<dyn VectorRepository>);
+        let service = ReferenceServiceImpl::new(embedder.clone(), mock_vector_db.clone() as Arc<dyn VectorRepository>, Arc::new(McpConfig::default()));
         (service, mock_vector_db)
     }
 
@@ -493,7 +531,7 @@ mod tests {
         // 3. prepare a mock VectorRepository
         let mock_vector_db = Arc::new(MockVectorRepository::new());
         let embedder = Arc::new(EmbeddingGenerator::new(EmbeddingModel::AllMiniLML6V2)?);
-        let service = ReferenceServiceImpl::new(embedder.clone(), mock_vector_db.clone() as Arc<dyn VectorRepository>);
+        let service = ReferenceServiceImpl::new(embedder.clone(), mock_vector_db.clone() as Arc<dyn VectorRepository>, Arc::new(McpConfig::default()));
 
         // 4. load prebuilt_index.jsonl and call upsert_documents
         let loaded_docs =
@@ -514,6 +552,7 @@ mod tests {
             source: Some("test-source".to_string()),
             content_chunk: "テスト用の内容".to_string(),
             metadata: None,
+            document_content: None,
         };
         mock_vector_db.set_search_results(vec![expected_result.clone()]);
 
@@ -539,6 +578,7 @@ mod tests {
             source: Some("mc-docs".to_string()),
             content_chunk: "A".to_string(),
             metadata: None,
+            document_content: None,
         };
         let result2 = SearchResult {
             file_path: "b.md".to_string(),
@@ -546,6 +586,7 @@ mod tests {
             source: Some("local-project".to_string()),
             content_chunk: "B".to_string(),
             metadata: None,
+            document_content: None,
         };
         mock_vector_db.set_search_results(vec![result1.clone(), result2.clone()]);
 

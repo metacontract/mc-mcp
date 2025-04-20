@@ -18,37 +18,38 @@ categories = ["command-line-utilities", "development-tools"]
 # From domain
 serde = { version = "1.0", features = ["derive"] }
 # From application
-anyhow = "1.0"
-log = "0.4"
+anyhow = "1.0.86"
+log = "0.4.21"
 async-trait = "0.1"
-futures = "0.3"
+futures = "0.3.30"
 # From infrastructure
-comrak = "0.24"
-walkdir = "2"
+comrak = "0.24.1"
+walkdir = "2.5.0"
 fastembed = { version = "4", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries"] }
+tar = "0.4.44"
 # From server
 rmcp = { version = "0.1.5", features = ["client", "server"] }
 # From workspace.dependencies (and used across crates)
-tokio = { version = "1", features = ["full"] } # Merged features
-serde_json = "1"
+tokio = { version = "1.38.0", features = ["full"] } # Merged features
+serde_json = "1.0.117"
 qdrant_client = { version = "1.13.0", package = "qdrant-client" }
 uuid = { version = "1.10", features = ["v4"] } # Use the version from workspace.dependencies
 tokio-util = "0.7.14"
 # Add figment for configuration
-figment = { version = "0.10", features = ["env", "toml", "test"] }
+figment = { version = "0.10.19", features = ["toml", "env", "test"] }
 # Added for the new features
 downcast-rs = "1.2.1"
 env_logger = "0.11.3"
-directories = "5.0"
+directories = "5.0.1"
 # Required by src files, moved from dev-dependencies
 testcontainers = { version = "0.23.3" }
 testcontainers-modules = { version = "0.11.6" }
 serial_test = "3.1.1"
 mockall = "0.12"
-flate2 = "1.1.1"
-reqwest = { version = "0.11", features = ["blocking"] }
+flate2 = "1.0.30"
+reqwest = { version = "0.12.4", features = ["blocking", "json", "gzip"] }
 ureq = "2"
-tempfile = "3"
+tempfile = "3.10.1"
 
 [dev-dependencies]
 # From application

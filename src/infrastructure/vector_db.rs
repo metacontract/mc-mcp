@@ -327,6 +327,7 @@ impl VectorDb {
                                 source: payload_data.source,
                                 content_chunk: payload_data.content_chunk,
                                 metadata: payload_data.metadata,
+                                document_content: None,
                             }),
                             Err(e) => {
                                 log::error!("Failed to deserialize DocumentPayload from search result {:?}: {}", scored_point.id, e);

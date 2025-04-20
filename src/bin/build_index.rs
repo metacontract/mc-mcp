@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-fn chunk_document(file_path: &str, content: &str) -> Vec<String> {
+fn chunk_document(_file_path: &str, content: &str) -> Vec<String> {
     // 既存のReferenceServiceImplと同じロジック
     content
         .split("\n\n")
