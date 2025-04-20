@@ -51,6 +51,10 @@ pub struct ScriptsConfig {
     pub deploy: Option<String>, // Path to the default deploy script
     #[serde(default)]
     pub upgrade: Option<String>, // Path to the default upgrade script
+    #[serde(default)]
+    pub rpc_url: Option<String>, // RPC URL for broadcast
+    #[serde(default)]
+    pub private_key_env_var: Option<String>, // Environment variable name holding the private key
     // Add other script paths as needed (e.g., init, test)
 }
 
@@ -162,6 +166,9 @@ upgrade = "scripts/MyUpgrade.s.sol"
             // Check scripts config loaded from Env
             assert_eq!(config.scripts.deploy, Some("/env/deploy.sh".to_string()));
             assert!(config.scripts.upgrade.is_none()); // Should be None as it wasn't set
+            // Check new fields are None by default
+            assert!(config.scripts.rpc_url.is_none());
+            assert!(config.scripts.private_key_env_var.is_none());
 
             Ok(())
         });
