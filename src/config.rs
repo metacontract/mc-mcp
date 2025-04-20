@@ -47,14 +47,20 @@ fn default_prebuilt_index_path() -> Option<PathBuf> {
 // Define structure for the [scripts] section
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ScriptsConfig {
+    /// Path to the script used by the `mc_deploy` tool.
     #[serde(default)]
-    pub deploy: Option<String>, // Path to the default deploy script
+    pub deploy: Option<String>,
+    /// Path to the script used by the `mc_upgrade` tool.
     #[serde(default)]
-    pub upgrade: Option<String>, // Path to the default upgrade script
+    pub upgrade: Option<String>,
+    /// RPC URL used when `broadcast: true` is passed to `mc_deploy` or `mc_upgrade`.
     #[serde(default)]
-    pub rpc_url: Option<String>, // RPC URL for broadcast
+    pub rpc_url: Option<String>,
+    /// Name of the environment variable holding the private key for broadcasting.
+    /// Used when `broadcast: true` is passed to `mc_deploy` or `mc_upgrade`.
+    /// Forge reads the actual key from this environment variable.
     #[serde(default)]
-    pub private_key_env_var: Option<String>, // Environment variable name holding the private key
+    pub private_key_env_var: Option<String>,
     // Add other script paths as needed (e.g., init, test)
 }
 
