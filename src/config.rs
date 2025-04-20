@@ -34,17 +34,11 @@ pub struct ReferenceConfig {
     // Default source is always mc-docs, maybe handled separately or require explicit definition?
     // Let's require explicit definition for now for clarity.
     pub sources: Vec<DocumentSource>,
-    #[serde(default = "default_prebuilt_index_path")]
     pub prebuilt_index_path: Option<PathBuf>, // Path relative to mc-docs source path? Or absolute? Let's try relative to config for now.
                                               // TODO: Add embedding model config, Qdrant config here? Or keep separate?
                                               // Keep separate for now, loaded via env vars in main.rs
 }
 
-fn default_prebuilt_index_path() -> Option<PathBuf> {
-    None
-}
-
-// Define structure for the [scripts] section
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ScriptsConfig {
     /// Path to the script used by the `mc_deploy` tool.
@@ -76,9 +70,18 @@ pub struct McpConfig {
 
 // Example function to load config (will be used in main.rs)
 pub fn load_config() -> Result<McpConfig> {
+    // Create the base config with the desired default prebuilt index path
+    let default_config = McpConfig {
+        reference: ReferenceConfig {
+            prebuilt_index_path: Some(PathBuf::from("artifacts/prebuilt_index.jsonl.gz")),
+            sources: vec![], // Keep sources empty by default
+        },
+        scripts: ScriptsConfig::default(), // Use default for scripts
+    };
+
     let figment = Figment::new()
-        // Start with default values
-        .merge(Serialized::defaults(McpConfig::default()))
+        // Start with our programmatically defined defaults
+        .merge(Serialized::defaults(default_config)) // Use our instance
         // Merge TOML file if it exists (REMOVE .nested())
         .merge(Toml::file("mcp_config.toml"))
         // Merge environment variables prefixed with MCP_
@@ -107,7 +110,10 @@ mod tests {
         Jail::expect_with(|_jail| {
             let config = load_config().expect("Failed to load default config");
             assert!(config.reference.sources.is_empty());
-            assert!(config.reference.prebuilt_index_path.is_none());
+            assert_eq!(
+                config.reference.prebuilt_index_path,
+                Some(PathBuf::from("artifacts/prebuilt_index.jsonl.gz")) // Check the default path is set correctly
+            );
             // Check default scripts config
             assert!(config.scripts.deploy.is_none());
             assert!(config.scripts.upgrade.is_none());
@@ -176,6 +182,34 @@ upgrade = "scripts/MyUpgrade.s.sol"
             assert!(config.scripts.rpc_url.is_none());
             assert!(config.scripts.private_key_env_var.is_none());
 
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn test_load_config_toml_without_prebuilt_path() {
+        Jail::expect_with(|jail| {
+            jail.create_file(
+                "mcp_config.toml",
+                r#"
+# prebuilt_index_path is omitted
+[reference]
+# no prebuilt_index_path here
+
+[[reference.sources]]
+name = "docs"
+source_type = "local"
+path = "./docs_folder"
+                "#,
+            )?;
+            let config = load_config().expect("Failed to load TOML config without prebuilt path");
+            // Should still default to the specified path because it's set in the base layer
+            assert_eq!(
+                config.reference.prebuilt_index_path,
+                Some(PathBuf::from("artifacts/prebuilt_index.jsonl.gz"))
+            );
+            assert_eq!(config.reference.sources.len(), 1);
+            assert_eq!(config.reference.sources[0].name, "docs");
             Ok(())
         });
     }

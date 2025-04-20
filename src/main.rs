@@ -50,13 +50,13 @@ const MC_TEMPLATE_REPO: &str = "metacontract/template";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Qdrant起動確認（Docker経由）
+    // check if qdrant is running
     if let Err(e) = ensure_qdrant_via_docker() {
         eprintln!("{e}");
         std::process::exit(1);
     }
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .target(env_logger::Target::Stderr) // <-- Add this line
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace"))
+        .target(env_logger::Target::Stderr)
         .init();
     log::info!("mc-mcp server (MCP over stdio) started.");
 
@@ -139,9 +139,13 @@ async fn main() -> Result<()> {
     let transport = (stdin(), stdout());
 
     log::info!("Starting MCP server...");
-    let server_handle = handler.serve(transport).await.inspect_err(|e| {
+    log::trace!("Just before handler.serve() call"); // New Log 1
+    let serve_future = handler.serve(transport);
+    log::trace!("handler.serve() called, future created. Before .await"); // New Log 2
+    let server_handle = serve_future.await.inspect_err(|e| {
         log::error!("serving error: {:?}", e);
     })?;
+    log::trace!("handler.serve().await returned successfully."); // Renamed previous log
 
     log::info!("mc-mcp server running, waiting for completion...");
     let shutdown_reason = server_handle.waiting().await?;
@@ -510,6 +514,7 @@ impl MyHandler {
 #[tool(tool_box)]
 impl ServerHandler for MyHandler {
     fn get_info(&self) -> ServerInfo {
+        log::trace!("Entering get_info method..."); // <-- Add trace at the beginning of get_info
         ServerInfo {
             protocol_version: ProtocolVersion::V_2024_11_05,
             capabilities: ServerCapabilities::builder().enable_tools().build(),
@@ -1657,10 +1662,10 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
         .map_err(|e| format!("Failed to execute docker ps: {e}"))?;
     let ps_stdout = String::from_utf8_lossy(&ps.stdout);
     if ps_stdout.contains("qdrant") {
-        eprintln!("✅ Qdrant is already running in Docker."); // Changed to eprintln!
+        eprintln!("✅ Qdrant is already running in Docker.");
     } else {
         // 3. Start Qdrant container
-        eprintln!("Qdrant container not found. Starting Qdrant in Docker..."); // Changed to eprintln!
+        eprintln!("Qdrant container not found. Starting Qdrant in Docker...");
         let run = std::process::Command::new("docker")
             .args([
                 "run",
@@ -1681,7 +1686,7 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
                 String::from_utf8_lossy(&run.stderr)
             ));
         }
-        eprintln!("Qdrant container started."); // Changed to eprintln!
+        eprintln!("Qdrant container started.");
     }
 
     // 4. Health check (HTTP endpoint retry)
@@ -1692,11 +1697,11 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
             .call()
         {
             Ok(resp) if resp.status() == 200 => {
-                eprintln!("✅ Qdrant is running and connected!"); // Changed to eprintln!
+                eprintln!("✅ Qdrant is running and connected!");
                 return Ok(());
             }
             _ => {
-                eprintln!("Waiting for Qdrant to start... (Retry {i}/5)"); // Changed to eprintln!
+                eprintln!("Waiting for Qdrant to start... (Retry {i}/5)");
                 sleep(Duration::from_secs(2));
             }
         }
