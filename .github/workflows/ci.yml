@@ -66,12 +66,17 @@ jobs:
         run: mkdir -p artifacts
 
       - name: Build prebuilt index
-        run: cargo run --bin build_index -- mc/site/docs artifacts/prebuilt_index.jsonl || ls -lR mc/site/docs
+        run: cargo run --release --bin build_index -- mc/site/docs artifacts/prebuilt_index.jsonl || (echo "build_index failed, listing docs dir:" && ls -lR mc/site/docs && exit 1)
 
       - name: Compress index
         run: gzip -9 -f artifacts/prebuilt_index.jsonl
 
+      - name: Archive docs directory
+        run: tar -czvf artifacts/docs.tar.gz -C mc/site docs
+
       - name: Create Release and Upload Asset
         uses: softprops/action-gh-release@v1
         with:
-          files: artifacts/prebuilt_index.jsonl.gz
+          files: |
+            artifacts/prebuilt_index.jsonl.gz
+            artifacts/docs.tar.gz
