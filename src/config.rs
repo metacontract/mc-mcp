@@ -55,8 +55,10 @@ pub struct ReferenceConfig {
     pub prebuilt_index_path: Option<PathBuf>, // Path relative to mc-docs source path? Or absolute? Let's try relative to config for now.
     #[serde(rename = "docs_archive_path")]
     pub docs_archive_path: Option<PathBuf>, // Path for the docs archive
-                                              // TODO: Add embedding model config, Qdrant config here? Or keep separate?
-                                              // Keep separate for now, loaded via env vars in main.rs
+    #[serde(default, rename = "embedding_cache_dir")]
+    pub embedding_cache_dir: Option<PathBuf>,
+    // TODO: Add embedding model config, Qdrant config here? Or keep separate?
+    // Keep separate for now, loaded via env vars in main.rs
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -96,11 +98,14 @@ impl Default for ReferenceConfig {
             .map(|dirs| dirs.cache_dir().join(PREBUILT_INDEX_FILENAME));
         let default_docs_path = ProjectDirs::from("xyz", "ecdysis", "mc-mcp")
             .map(|dirs| dirs.cache_dir().join(DOCS_ARCHIVE_FILENAME));
+        let default_embedding_cache_dir = ProjectDirs::from("xyz", "ecdysis", "mc-mcp")
+            .map(|dirs| dirs.cache_dir().to_path_buf());
 
         Self {
             sources: Vec::new(),
             prebuilt_index_path: default_index_path,
             docs_archive_path: default_docs_path, // Set default docs path
+            embedding_cache_dir: default_embedding_cache_dir,
         }
     }
 }

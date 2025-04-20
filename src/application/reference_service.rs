@@ -469,7 +469,7 @@ mod tests {
         ReferenceServiceImpl,
         Arc<MockVectorRepository>,
     ) {
-        let embedder = Arc::new(EmbeddingGenerator::new(EmbeddingModel::AllMiniLML6V2).unwrap());
+        let embedder = Arc::new(EmbeddingGenerator::new(EmbeddingModel::AllMiniLML6V2, None).unwrap());
         let mock_vector_db = Arc::new(MockVectorRepository::new());
         let service = ReferenceServiceImpl::new(embedder.clone(), mock_vector_db.clone() as Arc<dyn VectorRepository>, Arc::new(McpConfig::default()));
         (service, mock_vector_db)
@@ -530,7 +530,7 @@ mod tests {
 
         // 3. prepare a mock VectorRepository
         let mock_vector_db = Arc::new(MockVectorRepository::new());
-        let embedder = Arc::new(EmbeddingGenerator::new(EmbeddingModel::AllMiniLML6V2)?);
+        let embedder = Arc::new(EmbeddingGenerator::new(EmbeddingModel::AllMiniLML6V2, None)?);
         let service = ReferenceServiceImpl::new(embedder.clone(), mock_vector_db.clone() as Arc<dyn VectorRepository>, Arc::new(McpConfig::default()));
 
         // 4. load prebuilt_index.jsonl and call upsert_documents

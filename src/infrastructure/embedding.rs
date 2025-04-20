@@ -9,17 +9,20 @@ pub struct EmbeddingGenerator {
 impl EmbeddingGenerator {
     /// Creates a new EmbeddingGenerator, initializing the specified embedding model.
     ///
-    /// This function might block while downloading the model files for the first time.
-    ///
     /// # Arguments
     ///
     /// * `model_name` - The embedding model to use (e.g., EmbeddingModel::AllMiniLML6V2).
+    /// * `cache_dir` - The cache directory for the embedding model (None for default).
     ///
     /// # Returns
     ///
     /// A Result containing the `EmbeddingGenerator` on success, or a `FastEmbedError` on failure.
-    pub fn new(model_name: EmbeddingModel) -> Result<Self, FastEmbedError> {
-        let model = TextEmbedding::try_new(InitOptions::new(model_name))?;
+    pub fn new(model_name: EmbeddingModel, cache_dir: Option<std::path::PathBuf>) -> Result<Self, FastEmbedError> {
+        let mut opts = InitOptions::new(model_name);
+        if let Some(dir) = cache_dir {
+            opts = opts.with_cache_dir(dir);
+        }
+        let model = TextEmbedding::try_new(opts)?;
         Ok(EmbeddingGenerator { model })
     }
 
@@ -57,7 +60,7 @@ mod tests {
     #[test]
     fn test_embedding_generator_init_and_embed() -> Result<(), FastEmbedError> {
         let model_name = EmbeddingModel::AllMiniLML6V2; // Use EmbeddingModel directly
-        let generator = EmbeddingGenerator::new(model_name.clone())?;
+        let generator = EmbeddingGenerator::new(model_name.clone(), None)?;
 
         let documents = vec!["This is a test document.", "Another document."];
         let embeddings = generator.generate_embeddings(&documents)?;

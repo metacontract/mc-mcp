@@ -29,7 +29,7 @@ fn main() -> anyhow::Result<()> {
 
     // ドキュメント読み込み
     let documents = load_documents_from_source(&input_dir)?;
-    let embedder = EmbeddingGenerator::new(EmbeddingModel::AllMiniLML6V2)?;
+    let embedder = EmbeddingGenerator::new(EmbeddingModel::AllMiniLML6V2, None)?;
     let mut out = File::create(&output_path)?;
     let mut total_chunks = 0;
 

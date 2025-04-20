@@ -197,8 +197,9 @@ async fn initialize_background_services(
         .and_then(|s| s.parse().ok())
         .unwrap_or(384); // Default dimension
     let embedding_model = EmbeddingModel::AllMiniLML6V2;
+    let embedding_cache_dir = config_arc.reference.embedding_cache_dir.clone();
     // EmbeddingGenerator::new might load models, potentially blocking - consider spawn_blocking if slow
-    let embedder_result = tokio::task::spawn_blocking(move || EmbeddingGenerator::new(embedding_model)).await?;
+    let embedder_result = tokio::task::spawn_blocking(move || EmbeddingGenerator::new(embedding_model, embedding_cache_dir)).await?;
 
     let embedder = match embedder_result {
         Ok(generator) => Arc::new(generator),

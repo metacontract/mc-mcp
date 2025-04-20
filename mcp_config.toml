@@ -2,6 +2,7 @@
 # Default path is now the system's cache directory (e.g., ~/.cache/mc-mcp on Linux).
 # You can uncomment and set a specific path if needed.
 # prebuilt_index_path = "artifacts/prebuilt_index.jsonl.gz"
+# embedding_cache_dir = "~/.cache/mc-mcp"  # The cache directory for the embedding model (optional).
 
 # [[reference.sources]]
 # name = "mc-docs"
