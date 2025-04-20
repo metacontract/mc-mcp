@@ -55,7 +55,9 @@ async fn main() -> Result<()> {
         eprintln!("{e}");
         std::process::exit(1);
     }
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .target(env_logger::Target::Stderr) // <-- Add this line
+        .init();
     log::info!("mc-mcp server (MCP over stdio) started.");
 
     // --- Load Configuration ---
