@@ -63,6 +63,41 @@ async fn main() -> Result<()> {
     // --- Load Configuration ---
     let config = config::load_config()?;
     log::info!("Configuration loaded: {:?}", config);
+    let config_arc = Arc::new(config); // Create Arc for sharing
+
+    // --- Download Prebuilt Index (If Configured and Not Exists) ---
+    // Moved this block *before* loading/DI setup that might use the index
+    if let Some(dest_path_buf) = &config_arc.reference.prebuilt_index_path { // Get path from config
+        log::info!("Checking/Downloading prebuilt index to {:?}...", dest_path_buf);
+        // download_if_not_exists takes &str, so convert PathBuf
+        if let Some(dest_str) = dest_path_buf.to_str() {
+            // Ensure the parent directory exists before attempting download
+            if let Some(parent_dir) = dest_path_buf.parent() {
+                if !parent_dir.exists() {
+                    if let Err(e) = std::fs::create_dir_all(parent_dir) {
+                        log::error!("Failed to create directory for prebuilt index {:?}: {}", parent_dir, e);
+                        // Decide if we should continue or error out - let's log and continue for now
+                    }
+                }
+            }
+
+            match download_if_not_exists(PREBUILT_INDEX_URL, dest_str) {
+                Ok(_) => log::info!("Checked/Downloaded prebuilt index to {:?}", dest_path_buf),
+                Err(e) => log::error!(
+                    "Failed to check/download prebuilt index to {:?}: {}",
+                    dest_path_buf, e
+                    // Log error but continue, index loading will handle the missing file
+                ),
+            }
+        } else {
+            log::error!(
+                "Configured prebuilt index path is not valid UTF-8: {:?}",
+                dest_path_buf
+            );
+        }
+    } else {
+        log::info!("Skipping prebuilt index download check as no path is configured.");
+    }
 
     // --- Dependency Injection Setup (Moved earlier to access vector_db) ---
     let qdrant_url =
@@ -86,7 +121,8 @@ async fn main() -> Result<()> {
     // let reference_service: Arc<dyn ReferenceService> = Arc::new(ReferenceServiceImpl::new(embedder.clone(), vector_db.clone()));
 
     // --- Prebuilt Index Loading (If configured) ---
-    if let Some(prebuilt_path) = &config.reference.prebuilt_index_path {
+    // Now this runs *after* the download attempt
+    if let Some(prebuilt_path) = &config_arc.reference.prebuilt_index_path {
         log::info!(
             "Attempting to load prebuilt index from: {:?}",
             prebuilt_path
@@ -121,13 +157,13 @@ async fn main() -> Result<()> {
     // --- Initial Indexing from configured sources (after potential prebuilt index loading) ---
     log::info!(
         "Triggering indexing from configured sources ({} sources)...",
-        config.reference.sources.len()
+        config_arc.reference.sources.len()
     );
     // Decide if we should always index sources, or skip if prebuilt was loaded?
     // For now, let's always index configured sources after loading prebuilt.
     // Duplicates might be overwritten depending on VectorDb implementation.
     if let Err(e) = reference_service
-        .index_sources(&config.reference.sources)
+        .index_sources(&config_arc.reference.sources)
         .await
     {
         log::error!("Error during configured source indexing: {}", e);
@@ -135,7 +171,6 @@ async fn main() -> Result<()> {
     log::info!("Configured source indexing process started/completed.");
 
     // --- Start MCP Server ---
-    let config_arc = Arc::new(config); // Create Arc<McpConfig> for the handler
     let handler = MyHandler { reference_service, config: config_arc.clone() }; // Pass Arc to handler
     let transport = (stdin(), stdout());
 
@@ -152,8 +187,8 @@ async fn main() -> Result<()> {
     let shutdown_reason = server_handle.waiting().await?;
     log::info!("mc-mcp server finished. Reason: {:?}", shutdown_reason);
 
-    // --- Download prebuilt index if configured and not exists ---
-    // Use the config loaded earlier (now in config_arc)
+    // --- Download prebuilt index if configured and not exists --- << REMOVE THIS BLOCK
+    /*
     if let Some(dest_path_buf) = &config_arc.reference.prebuilt_index_path { // Get path from config
         // download_if_not_exists takes &str, so convert PathBuf
         if let Some(dest_str) = dest_path_buf.to_str() {
@@ -173,6 +208,7 @@ async fn main() -> Result<()> {
     } else {
         log::info!("Skipping prebuilt index download check as no path is configured.");
     }
+    */
 
     Ok(())
 }
