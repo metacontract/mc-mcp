@@ -1657,10 +1657,10 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
         .map_err(|e| format!("Failed to execute docker ps: {e}"))?;
     let ps_stdout = String::from_utf8_lossy(&ps.stdout);
     if ps_stdout.contains("qdrant") {
-        println!("✅ Qdrant is already running in Docker.");
+        eprintln!("✅ Qdrant is already running in Docker."); // Changed to eprintln!
     } else {
         // 3. Start Qdrant container
-        println!("Qdrant container not found. Starting Qdrant in Docker...");
+        eprintln!("Qdrant container not found. Starting Qdrant in Docker..."); // Changed to eprintln!
         let run = std::process::Command::new("docker")
             .args([
                 "run",
@@ -1681,7 +1681,7 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
                 String::from_utf8_lossy(&run.stderr)
             ));
         }
-        println!("Qdrant container started.");
+        eprintln!("Qdrant container started."); // Changed to eprintln!
     }
 
     // 4. Health check (HTTP endpoint retry)
@@ -1692,11 +1692,11 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
             .call()
         {
             Ok(resp) if resp.status() == 200 => {
-                println!("✅ Qdrant is running and connected!");
+                eprintln!("✅ Qdrant is running and connected!"); // Changed to eprintln!
                 return Ok(());
             }
             _ => {
-                println!("Waiting for Qdrant to start... (Retry {i}/5)");
+                eprintln!("Waiting for Qdrant to start... (Retry {i}/5)"); // Changed to eprintln!
                 sleep(Duration::from_secs(2));
             }
         }

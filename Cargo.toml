@@ -1,6 +1,6 @@
 [package]
 name = "mc-mcp"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["ea <ecdysis-xyz@proton.me>", "kai <kai.hiroi@pm.me>"]
 description = "A Model Context Protocol (MCP) server for metacontract smart contract development."
