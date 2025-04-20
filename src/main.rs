@@ -12,10 +12,12 @@ use rmcp::{
     tool, Error as McpError, RoleServer, ServerHandler, ServiceExt,
 };
 use serde::Deserialize;
-use std::sync::Arc;
+// Import Arc and Mutex for shared state
+use std::sync::{Arc, Mutex};
 use tokio::{
     io::{stdin, stdout},
     process::Command,
+    sync::Notify, // For signaling initialization completion
 };
 
 // Import from the library crate using its name (mc-mcp)
@@ -47,11 +49,7 @@ const MC_TEMPLATE_REPO: &str = "metacontract/template";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // check if qdrant is running
-    if let Err(e) = ensure_qdrant_via_docker() {
-        log::error!("{e}");
-        std::process::exit(1);
-    }
+    // --- Basic Setup First ---
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace"))
         .target(env_logger::Target::Stderr)
         .init();
@@ -60,115 +58,173 @@ async fn main() -> Result<()> {
     // --- Load Configuration ---
     let config = config::load_config()?;
     log::info!("Configuration loaded: {:?}", config);
-    let config_arc = Arc::new(config); // Create Arc for sharing
+    let config_arc = Arc::new(config);
+
+    // --- Initialize Handler with Placeholder Service ---
+    // Service will be initialized in the background
+    let handler = MyHandler::new(config_arc.clone());
+    let reference_service_state = handler.reference_service_state.clone(); // Clone Arc for background task
+
+    // --- Start MCP Server Immediately ---
+    let transport = (stdin(), stdout());
+    log::info!("Starting MCP server listener...");
+    // Note: We don't await the serve future here yet, start the background task first
+    let serve_future = handler.serve(transport);
+
+    // --- Start Background Initialization Task ---
+    let init_config = config_arc.clone(); // Clone Arc for background task
+    let initialization_complete = Arc::new(Notify::new()); // Signal for completion
+    let init_complete_signal = initialization_complete.clone(); // Clone for waiting
+
+    tokio::spawn(async move {
+        log::info!("Background initialization task started.");
+        // --- Initialize Everything Asynchronously ---
+        let init_result = initialize_background_services(init_config, reference_service_state).await;
+
+        match init_result {
+            Ok(_) => {
+                log::info!("Background initialization completed successfully.");
+                // Signal that initialization is complete
+                init_complete_signal.notify_one();
+            }
+            Err(e) => {
+                log::error!("Background initialization failed: {}", e);
+                // We might want to signal failure or handle it differently
+                // For now, just log the error. The service will remain None.
+                // Optionally notify waiters about the failure state.
+            }
+        }
+    });
+
+    log::info!("MCP server started, waiting for initialization and client connection...");
+
+    // Now await the server serving future
+    // This will handle MCP communication while initialization happens in the background
+    let server_handle = serve_future.await.inspect_err(|e| {
+        log::error!("serving error: {:?}", e);
+    })?;
+
+    log::info!("mc-mcp server running, waiting for completion...");
+    let shutdown_reason = server_handle.waiting().await?;
+    log::info!("mc-mcp server finished. Reason: {:?}", shutdown_reason);
+
+    Ok(())
+}
+
+/// Performs all the heavy initialization in the background.
+async fn initialize_background_services(
+    config_arc: Arc<McpConfig>,
+    service_state: Arc<Mutex<Option<Arc<dyn ReferenceService>>>>,
+) -> Result<()> {
+    // --- Ensure Qdrant is Running ---
+    if let Err(e) = ensure_qdrant_via_docker() {
+        log::error!("Qdrant check/start failed: {}", e);
+        // Depending on requirements, we might bail out here
+        // return Err(anyhow::anyhow!("Failed to ensure Qdrant: {}", e));
+        // Or log and continue, letting vector operations fail later
+    }
 
     // --- Download Prebuilt Index (If Configured and Not Exists) ---
-    // Moved this block *before* loading/DI setup that might use the index
-    if let Some(dest_path_buf) = &config_arc.reference.prebuilt_index_path { // Get path from config
+    if let Some(dest_path_buf) = &config_arc.reference.prebuilt_index_path {
         log::info!("Checking/Downloading prebuilt index to {:?}...", dest_path_buf);
-        // download_if_not_exists takes &str, so convert PathBuf
         if let Some(dest_str) = dest_path_buf.to_str() {
-            // Ensure the parent directory exists before attempting download
             if let Some(parent_dir) = dest_path_buf.parent() {
                 if !parent_dir.exists() {
-                    if let Err(e) = std::fs::create_dir_all(parent_dir) {
-                        log::error!("Failed to create directory for prebuilt index {:?}: {}", parent_dir, e);
-                        // Decide if we should continue or error out - let's log and continue for now
-                    }
+                    tokio::fs::create_dir_all(parent_dir).await?; // Use tokio::fs
                 }
             }
+            // Wrap the potentially blocking download call in spawn_blocking
+            let download_result = tokio::task::spawn_blocking({
+                let url = PREBUILT_INDEX_URL.to_string();
+                let dest = dest_str.to_string();
+                move || download_if_not_exists(&url, &dest)
+            }).await?; // Await the spawn_blocking future
 
-            match download_if_not_exists(PREBUILT_INDEX_URL, dest_str) {
+            match download_result {
                 Ok(_) => log::info!("Checked/Downloaded prebuilt index to {:?}", dest_path_buf),
-                Err(e) => log::error!(
-                    "Failed to check/download prebuilt index to {:?}: {}",
-                    dest_path_buf, e
-                    // Log error but continue, index loading will handle the missing file
-                ),
+                Err(e) => log::error!("Failed check/download prebuilt index: {}", e), // Log and continue
             }
         } else {
-            log::error!(
-                "Configured prebuilt index path is not valid UTF-8: {:?}",
-                dest_path_buf
-            );
+            log::error!("Invalid UTF-8 prebuilt index path: {:?}", dest_path_buf);
         }
     } else {
-        log::info!("Skipping prebuilt index download check as no path is configured.");
+        log::info!("Skipping prebuilt index download check (no path configured).");
     }
 
     // --- Download Docs Archive (If Configured and Not Exists) ---
     if let Some(docs_path_buf) = &config_arc.reference.docs_archive_path {
-        log::info!("Checking/Downloading docs archive to {:?}...", docs_path_buf);
-        if let Some(docs_str) = docs_path_buf.to_str() {
-            // Ensure parent directory exists
-            if let Some(parent_dir) = docs_path_buf.parent() {
-                if !parent_dir.exists() {
-                    if let Err(e) = std::fs::create_dir_all(parent_dir) {
-                        log::error!("Failed to create directory for docs archive {:?}: {}", parent_dir, e);
-                    }
-                }
-            }
+         log::info!("Checking/Downloading docs archive to {:?}...", docs_path_buf);
+         if let Some(docs_str) = docs_path_buf.to_str() {
+             if let Some(parent_dir) = docs_path_buf.parent() {
+                 if !parent_dir.exists() {
+                    tokio::fs::create_dir_all(parent_dir).await?; // Use tokio::fs
+                 }
+             }
+             let docs_archive_url = config::get_latest_release_download_url( // This likely needs to become async or run in spawn_blocking
+                 config::GITHUB_REPO_OWNER,
+                 config::GITHUB_REPO_NAME,
+                 config::DOCS_ARCHIVE_FILENAME,
+             );
+             // Wrap the potentially blocking download call in spawn_blocking
+             let download_result = tokio::task::spawn_blocking({
+                 // Clone URL and path strings to move into the closure
+                 let url = docs_archive_url.clone();
+                 let dest = docs_str.to_string();
+                 move || download_if_not_exists(&url, &dest)
+             }).await?; // Await the spawn_blocking future
 
-            let docs_archive_url = config::get_latest_release_download_url(
-                config::GITHUB_REPO_OWNER,
-                config::GITHUB_REPO_NAME,
-                config::DOCS_ARCHIVE_FILENAME,
-            );
-            match download_if_not_exists(&docs_archive_url, docs_str) {
-                Ok(_) => log::info!("Checked/Downloaded docs archive to {:?}", docs_path_buf),
-                Err(e) => log::error!(
-                    "Failed to check/download docs archive to {:?}: {}",
-                    docs_path_buf,
-                    e
-                ),
-            }
-        } else {
-            log::error!(
-                "Configured docs archive path is not valid UTF-8: {:?}",
-                docs_path_buf
-            );
-        }
+             match download_result {
+                 Ok(_) => log::info!("Checked/Downloaded docs archive to {:?}", docs_path_buf),
+                 Err(e) => log::error!("Failed check/download docs archive: {}", e), // Log and continue
+             }
+         } else {
+             log::error!("Invalid UTF-8 docs archive path: {:?}", docs_path_buf);
+         }
     } else {
-        log::info!("Skipping docs archive download check as no path is configured.");
+         log::info!("Skipping docs archive download check (no path configured).");
     }
 
-    // --- Dependency Injection Setup (Moved earlier to access vector_db) ---
+
+    // --- Dependency Injection Setup ---
     let qdrant_url =
         std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6334".to_string());
-    let qdrant_client = qdrant_client::Qdrant::from_url(&qdrant_url).build()?;
+    // qdrant_client creation might involve network I/O - keep async
+    let qdrant_client = qdrant_client::Qdrant::from_url(&qdrant_url).build()?; // Assuming build() is sync or fast
     let collection_name =
         std::env::var("QDRANT_COLLECTION").unwrap_or_else(|_| "mc_docs".to_string());
     let vector_dim: u64 = std::env::var("EMBEDDING_DIM")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(384);
+        .unwrap_or(384); // Default dimension
     let embedding_model = EmbeddingModel::AllMiniLML6V2;
-    let embedder = Arc::new(EmbeddingGenerator::new(embedding_model)?);
+    // EmbeddingGenerator::new might load models, potentially blocking - consider spawn_blocking if slow
+    let embedder_result = tokio::task::spawn_blocking(move || EmbeddingGenerator::new(embedding_model)).await?;
+
+    let embedder = match embedder_result {
+        Ok(generator) => Arc::new(generator),
+        Err(e) => {
+            // Log the detailed error chain here
+            log::error!("Failed to create EmbeddingGenerator: {:?}", e);
+            // Propagate the error to stop initialization
+            return Err(e);
+        }
+    };
+
     let vector_db_instance =
         VectorDb::new(Box::new(qdrant_client), collection_name.clone(), vector_dim)?;
-    // Initialize collection *before* potentially upserting prebuilt index
+    // Initialize collection
     vector_db_instance.initialize_collection().await?;
-    // Get Arc<dyn VectorRepository> to use for both prebuilt index and service
     let vector_db: Arc<dyn VectorRepository> = Arc::new(vector_db_instance);
-    // Keep reference_service initialization separate for now
-    // let reference_service: Arc<dyn ReferenceService> = Arc::new(ReferenceServiceImpl::new(embedder.clone(), vector_db.clone()));
 
     // --- Prebuilt Index Loading (If configured) ---
-    // Now this runs *after* the download attempt
-    if let Some(prebuilt_path) = &config_arc.reference.prebuilt_index_path {
-        log::info!(
-            "Attempting to load prebuilt index from: {:?}",
-            prebuilt_path
-        );
-        match file_system::load_prebuilt_index(prebuilt_path.clone()) {
+    if let Some(prebuilt_path) = config_arc.reference.prebuilt_index_path.clone() {
+        log::info!("Attempting to load prebuilt index from: {:?}", prebuilt_path);
+        // file_system::load_prebuilt_index might be blocking - use spawn_blocking
+        match tokio::task::spawn_blocking(move || file_system::load_prebuilt_index(prebuilt_path)).await? {
             Ok(prebuilt_docs) => {
-                log::info!(
-                    "Successfully loaded {} documents from prebuilt index.",
-                    prebuilt_docs.len()
-                );
+                log::info!("Loaded {} docs from prebuilt index.", prebuilt_docs.len());
                 if !prebuilt_docs.is_empty() {
                     log::info!("Upserting prebuilt documents...");
-                    // Use the vector_db Arc directly to upsert
                     match vector_db.upsert_documents(&prebuilt_docs).await {
                         Ok(_) => log::info!("Successfully upserted prebuilt documents."),
                         Err(e) => log::error!("Failed to upsert prebuilt documents: {}", e),
@@ -176,80 +232,45 @@ async fn main() -> Result<()> {
                 }
             }
             Err(e) => {
-                // Log the error but continue without the prebuilt index
-                log::error!("Failed to load or parse prebuilt index from {:?}: {}. Continuing without prebuilt index.", prebuilt_path, e);
+                log::error!("Failed to load prebuilt index: {}. Continuing...", e);
             }
         }
     } else {
         log::info!("No prebuilt index path configured.");
     }
 
-    // --- Initialize Reference Service (after potential prebuilt index loading) ---
-    let reference_service = Arc::new(ReferenceServiceImpl::new(embedder, vector_db.clone(), config_arc.clone())); // Add config_arc.clone()
+    // --- Initialize Reference Service ---
+    let reference_service = Arc::new(ReferenceServiceImpl::new(embedder, vector_db.clone(), config_arc.clone()));
 
-    // --- Initial Indexing from configured sources (after potential prebuilt index loading) ---
-    log::info!(
-        "Triggering indexing from configured sources ({} sources)...",
-        config_arc.reference.sources.len()
-    );
-    // Decide if we should always index sources, or skip if prebuilt was loaded?
-    // For now, let's always index configured sources after loading prebuilt.
-    // Duplicates might be overwritten depending on VectorDb implementation.
+    // --- Initial Indexing from configured sources ---
+    log::info!("Triggering indexing from configured sources...");
     if let Err(e) = reference_service
-        .index_sources(&config_arc.reference.sources)
+        .index_sources(&config_arc.reference.sources) // index_sources needs to be async
         .await
     {
         log::error!("Error during configured source indexing: {}", e);
+        // Decide if this error should prevent the service from becoming available
+        // return Err(e.into()); // Option: Propagate error
     }
     log::info!("Configured source indexing process started/completed.");
 
-    // --- Start MCP Server ---
-    let handler = MyHandler { reference_service, config: config_arc.clone() }; // Pass Arc to handler
-    let transport = (stdin(), stdout());
 
-    log::info!("Starting MCP server...");
-    log::trace!("Just before handler.serve() call"); // New Log 1
-    let serve_future = handler.serve(transport);
-    log::trace!("handler.serve() called, future created. Before .await"); // New Log 2
-    let server_handle = serve_future.await.inspect_err(|e| {
-        log::error!("serving error: {:?}", e);
-    })?;
-    log::trace!("handler.serve().await returned successfully."); // Renamed previous log
-
-    log::info!("mc-mcp server running, waiting for completion...");
-    let shutdown_reason = server_handle.waiting().await?;
-    log::info!("mc-mcp server finished. Reason: {:?}", shutdown_reason);
-
-    // --- Download prebuilt index if configured and not exists --- << REMOVE THIS BLOCK
-    /*
-    if let Some(dest_path_buf) = &config_arc.reference.prebuilt_index_path { // Get path from config
-        // download_if_not_exists takes &str, so convert PathBuf
-        if let Some(dest_str) = dest_path_buf.to_str() {
-            match download_if_not_exists(PREBUILT_INDEX_URL, dest_str) {
-                Ok(_) => log::info!("Checked/Downloaded prebuilt index to {:?}", dest_path_buf),
-                Err(e) => log::error!(
-                    "Failed to check/download prebuilt index to {:?}: {}",
-                    dest_path_buf, e
-                ),
-            }
-        } else {
-            log::error!(
-                "Configured prebuilt index path is not valid UTF-8: {:?}",
-                dest_path_buf
-            );
-        }
-    } else {
-        log::info!("Skipping prebuilt index download check as no path is configured.");
+    // --- Update Handler State with Initialized Service ---
+    {
+        let mut state = service_state.lock().unwrap();
+        *state = Some(reference_service);
+        log::info!("ReferenceService is now initialized and available.");
     }
-    */
 
     Ok(())
 }
 
+
 /// Handler for the MCP server logic.
 #[derive(Clone)]
 struct MyHandler {
-    reference_service: Arc<dyn ReferenceService>,
+    // Use Mutex<Option<...>> to hold the service, allowing it to be initialized later
+    reference_service_state: Arc<Mutex<Option<Arc<dyn ReferenceService>>>>,
     config: Arc<McpConfig>,
 }
 
@@ -282,9 +303,13 @@ struct McUpgradeArgs {
 
 #[tool(tool_box)]
 impl MyHandler {
-    /// Creates a new handler instance.
-    fn new(reference_service: Arc<dyn ReferenceService>, config: Arc<McpConfig>) -> Self {
-        Self { reference_service, config }
+    /// Creates a new handler instance with uninitialized service state.
+    fn new(config: Arc<McpConfig>) -> Self {
+        Self {
+            // Initialize service as None initially
+            reference_service_state: Arc::new(Mutex::new(None)),
+            config,
+        }
     }
 
     /// Helper function to run forge script commands (deploy/upgrade).
@@ -480,42 +505,57 @@ impl MyHandler {
             limit
         );
 
-        let search_query = domain::reference::SearchQuery {
-            text: query.clone(),
-            limit: Some(limit),
-            sources: None,
-        };
-        match self
-            .reference_service
-            .search_documents(search_query, None)
-            .await
-        {
-            Ok(results) => match serde_json::to_value(results) {
-                Ok(json_value) => {
-                    log::debug!("Successfully serialized search results to JSON");
-                    match serde_json::to_string(&json_value) {
-                        Ok(json_string) => {
-                            Ok(CallToolResult::success(vec![Content::text(json_string)]))
-                        }
-                        Err(e) => {
-                            log::error!("Failed to serialize JSON to string: {:?}", e);
-                            let err_msg =
-                                format!("Failed to create text response from JSON: {:?}", e);
-                            Ok(CallToolResult::error(vec![Content::text(err_msg)]))
+        // --- Check if ReferenceService is initialized ---
+        let service_maybe;
+        { // Lock scope
+            let state = self.reference_service_state.lock().unwrap();
+            service_maybe = state.clone(); // Clone the Arc<dyn ReferenceService> if Some
+        }
+
+        if let Some(service) = service_maybe {
+            // --- Service is available, proceed with search ---
+            log::debug!("ReferenceService available, performing search.");
+            let search_query = domain::reference::SearchQuery {
+                text: query.clone(),
+                limit: Some(limit),
+                sources: None,
+            };
+            match service // Use the cloned Arc
+                .search_documents(search_query, None)
+                .await
+            {
+                Ok(results) => match serde_json::to_value(results) {
+                    Ok(json_value) => {
+                        log::debug!("Successfully serialized search results to JSON");
+                        match serde_json::to_string(&json_value) {
+                            Ok(json_string) => {
+                                Ok(CallToolResult::success(vec![Content::text(json_string)]))
+                            }
+                            Err(e) => {
+                                log::error!("Failed to serialize JSON to string: {:?}", e);
+                                let err_msg = format!("Failed to create text response from JSON: {:?}", e);
+                                Ok(CallToolResult::error(vec![Content::text(err_msg)]))
+                            }
                         }
                     }
-                }
+                    Err(e) => {
+                        log::error!("Failed to serialize search results to JSON: {}", e);
+                        let err_msg = format!("Failed to serialize search results: {}", e);
+                        Ok(CallToolResult::error(vec![Content::text(err_msg)]))
+                    }
+                },
                 Err(e) => {
-                    log::error!("Failed to serialize search results to JSON: {}", e);
-                    let err_msg = format!("Failed to serialize search results: {}", e);
+                    log::error!("Semantic search failed: {}", e);
+                    let err_msg = format!("Semantic search failed: {}", e);
                     Ok(CallToolResult::error(vec![Content::text(err_msg)]))
                 }
-            },
-            Err(e) => {
-                log::error!("Semantic search failed: {}", e);
-                let err_msg = format!("Semantic search failed: {}", e);
-                Ok(CallToolResult::error(vec![Content::text(err_msg)]))
             }
+        } else {
+            // --- Service not yet initialized ---
+            log::warn!("mc_search_docs_semantic called but ReferenceService is not yet initialized.");
+            Ok(CallToolResult::error(vec![Content::text(
+                "The document search service is still initializing. Please try again shortly.",
+            )]))
         }
     }
 
@@ -675,7 +715,9 @@ impl ServerHandler for MyHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Adjust Mutex imports if needed
     use std::sync::{Arc, Mutex};
+
 
     // Use the library crate path for domain items in tests
     use anyhow::Result;
@@ -756,8 +798,9 @@ mod tests {
     // Helper function returns concrete mock type now
     fn setup_mock_handler() -> (MyHandler, Arc<MockReferenceService>) {
         let mock_service = Arc::new(MockReferenceService::default());
+        // Initialize handler with the *initialized* mock service for testing tool logic directly
         let handler = MyHandler {
-            reference_service: mock_service.clone(),
+            reference_service_state: Arc::new(Mutex::new(Some(mock_service.clone()))), // Start with Some(mock)
             config: Arc::new(McpConfig {
                 scripts: mc_mcp::config::ScriptsConfig {
                     deploy: Some("scripts/Deploy.s.sol".to_string()), // Default for tests
@@ -776,8 +819,9 @@ mod tests {
         config: McpConfig,
     ) -> (MyHandler, Arc<MockReferenceService>) {
         let mock_service = Arc::new(MockReferenceService::default());
+        // Initialize handler with the *initialized* mock service
         let handler = MyHandler {
-            reference_service: mock_service.clone(),
+            reference_service_state: Arc::new(Mutex::new(Some(mock_service.clone()))), // Start with Some(mock)
             config: Arc::new(config), // Pass specific config
         };
         (handler, mock_service)
@@ -885,6 +929,33 @@ mod tests {
                 other_kind
             ),
         }
+    }
+
+    // --- New Test: Search while service is initializing ---
+    #[tokio::test]
+    async fn test_search_docs_semantic_initializing() {
+        // Setup handler with None state initially
+        let mock_service = Arc::new(MockReferenceService::default()); // Not used directly here
+        let config = McpConfig::default(); // Use default config
+        let handler = MyHandler {
+            reference_service_state: Arc::new(Mutex::new(None)), // Start as None
+            config: Arc::new(config),
+        };
+
+        let args = SearchDocsArgs {
+            query: "any query".to_string(),
+            limit: None,
+        };
+        let result = handler
+            .mc_search_docs_semantic(args)
+            .await
+            .expect("Tool call failed");
+
+        assert_eq!(result.is_error, Some(true)); // Expect error status
+        assert_eq!(result.content.len(), 1);
+
+        let error_text = &result.content[0].raw.as_text().expect("Expected text").text;
+        assert!(error_text.contains("service is still initializing"));
     }
 
     #[tokio::test]
@@ -1781,9 +1852,11 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
         log::info!("Qdrant container started.");
     }
 
-    // 4. Health check (HTTP endpoint retry)
+    // 4. Health check (HTTP endpoint retry) - Consider making this async if needed elsewhere
     let endpoint = "http://localhost:6333/collections";
     for i in 1..=5 {
+        // ureq::get is blocking, fine for this initial check for now
+        // If this becomes a bottleneck, replace with reqwest or similar async client
         match ureq::get(endpoint)
             .timeout(std::time::Duration::from_millis(1000))
             .call()
@@ -1792,11 +1865,23 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
                 log::info!("✅ Qdrant is running and connected!");
                 return Ok(());
             }
+            Ok(resp) => { // Added logging for non-200 status
+                log::warn!("Qdrant check returned status: {}", resp.status());
+                 log::info!("Waiting for Qdrant to start... (Retry {i}/5)");
+                 std::thread::sleep(std::time::Duration::from_secs(2)); // Keep sync sleep here
+            }
+            Err(e) => { // Added logging for connection errors
+                log::warn!("Qdrant check connection error: {}", e);
+                log::info!("Waiting for Qdrant to start... (Retry {i}/5)");
+                std::thread::sleep(std::time::Duration::from_secs(2)); // Keep sync sleep here
+            }
+            /* // Original logic:
             _ => {
                 log::info!("Waiting for Qdrant to start... (Retry {i}/5)");
-                std::thread::sleep(std::time::Duration::from_secs(2));
+                std::thread::sleep(std::time::Duration::from_secs(2)); // Keep sync sleep here
             }
+            */
         }
     }
-    Err("Failed to connect to Qdrant. Check Docker and network settings.".to_string())
+    Err("Failed to connect to Qdrant after retries. Check Docker and network settings.".to_string())
 }
