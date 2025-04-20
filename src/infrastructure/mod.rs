@@ -1,6 +1,6 @@
+pub mod embedding;
 pub mod file_system;
 pub mod markdown;
-pub mod embedding;
 pub mod vector_db;
 
 // Re-export key types for easier access from application layer

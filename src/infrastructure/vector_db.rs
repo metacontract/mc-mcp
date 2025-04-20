@@ -3,14 +3,19 @@
 // use serde::{Deserialize, Serialize};
 use log;
 // Use the re-exported module path for Qdrant internally
-pub use qdrant_client; // Re-export the entire module
 use self::qdrant_client::Qdrant;
-use self::qdrant_client::{Payload, qdrant::{PointStruct, SearchPoints, PointId, Vectors, WithPayloadSelector, WithVectorsSelector, Distance, VectorParams, CreateCollectionBuilder, UpsertPointsBuilder}};
-// Remove unused ScoredPoint import
-// use self::qdrant_client::qdrant::ScoredPoint;
-use uuid::Uuid;
+use self::qdrant_client::{
+    qdrant::{
+        CreateCollectionBuilder, Distance, PointId, PointStruct, SearchPoints, UpsertPointsBuilder,
+        VectorParams, Vectors, WithPayloadSelector, WithVectorsSelector,
+    },
+    Payload,
+};
+pub use qdrant_client; // Re-export the entire module
+                       // Remove unused ScoredPoint import
+                       // use self::qdrant_client::qdrant::ScoredPoint;
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
+use uuid::Uuid;
 // Import serde::Deserialize for DocumentToUpsert
 use serde::Deserialize;
 use serde::Serialize;
@@ -19,17 +24,18 @@ use serde::Serialize;
 // Required imports for shared container logic
 // Remove Lazy import
 // use tokio::sync::Lazy; // Use tokio's Lazy for async static init
-use tokio::sync::OnceCell; // Use OnceCell for async initialization
-use testcontainers::{GenericImage, ContainerAsync}; // Correct import for GenericImage and ContainerAsync
-use testcontainers::core::{WaitFor, IntoContainerPort}; // WaitFor, IntoContainerPort are in core
-use testcontainers::runners::AsyncRunner; // Add missing trait import
+use async_trait::async_trait;
+// use testcontainers::core::WaitFor; // WaitFor is in core
+// use testcontainers::runners::AsyncRunner;
+// use testcontainers::{ContainerAsync, GenericImage}; // Correct import for GenericImage and ContainerAsync
+// use tokio::sync::OnceCell; // Use OnceCell for async initialization // Add missing trait import
 
 // Remove unused DocumentToUpsert from embedding import
 // use super::embedding::DocumentToUpsert;
 // Assuming VectorRepository trait is in domain/vector_repository.rs
-use crate::domain::vector_repository::VectorRepository;
 use self::qdrant_client::qdrant::value::Kind as QdrantValueKind;
-use crate::domain::reference::SearchResult; // Import domain SearchResult
+use crate::domain::reference::SearchResult;
+use crate::domain::vector_repository::VectorRepository; // Import domain SearchResult
 
 mod payload {
     use serde::{Deserialize, Serialize};
@@ -37,7 +43,7 @@ mod payload {
     pub struct DocumentPayload {
         pub file_path: String,
         pub source: Option<String>, // Make optional to match SearchResult
-        pub content_chunk: String, // Add the chunk content
+        pub content_chunk: String,  // Add the chunk content
         pub metadata: Option<serde_json::Value>, // Add optional metadata
     }
 }
@@ -49,8 +55,8 @@ pub use self::payload::DocumentPayload;
 pub struct DocumentToUpsert {
     pub file_path: String,
     pub vector: Vec<f32>,
-    pub source: Option<String>, // Make optional
-    pub content_chunk: String, // Add content chunk
+    pub source: Option<String>,              // Make optional
+    pub content_chunk: String,               // Add content chunk
     pub metadata: Option<serde_json::Value>, // Add metadata
 }
 
@@ -80,16 +86,23 @@ impl VectorDb {
         if vector_size == 0 {
             return Err(anyhow!("Vector size must be greater than zero"));
         }
-        Ok(Self { client, collection_name, vector_size })
+        Ok(Self {
+            client,
+            collection_name,
+            vector_size,
+        })
     }
 
-     /// Initializes the Qdrant collection if it doesn't exist.
+    /// Initializes the Qdrant collection if it doesn't exist.
     ///
     /// # Returns
     ///
     /// A Result indicating success or failure.
     pub async fn initialize_collection(&self) -> Result<()> {
-        log::info!("Checking if collection '{}' exists...", self.collection_name);
+        log::info!(
+            "Checking if collection '{}' exists...",
+            self.collection_name
+        );
 
         match self.client.collection_info(&self.collection_name).await {
             Ok(_) => {
@@ -97,19 +110,23 @@ impl VectorDb {
                 Ok(())
             }
             Err(e) => {
-                 // Log the specific error for debugging
+                // Log the specific error for debugging
                 log::warn!("Collection '{}' not found or error checking existence: {}. Attempting to create...", self.collection_name, e);
-                 // Check if the error indicates "Not Found" specifically if the client library supports it
-                 // Qdrant client might return a specific status code or error kind for "Not Found"
-                 // Assuming any error means we should try to create it for now.
-                 self.create_collection_internal().await
+                // Check if the error indicates "Not Found" specifically if the client library supports it
+                // Qdrant client might return a specific status code or error kind for "Not Found"
+                // Assuming any error means we should try to create it for now.
+                self.create_collection_internal().await
             }
         }
     }
 
     // Internal helper to create the collection
     async fn create_collection_internal(&self) -> Result<()> {
-        log::info!("Creating collection '{}' with size {} and distance Cosine...", self.collection_name, self.vector_size);
+        log::info!(
+            "Creating collection '{}' with size {} and distance Cosine...",
+            self.collection_name,
+            self.vector_size
+        );
 
         // Use the builder pattern with struct literal for VectorParams
         let vector_params = VectorParams {
@@ -124,15 +141,22 @@ impl VectorDb {
         // Pass vector_params directly, removing .into()
         let create_builder = CreateCollectionBuilder::new(self.collection_name.clone())
             .vectors_config(vector_params);
-            // Add other builder methods if needed
+        // Add other builder methods if needed
 
         match self.client.create_collection(create_builder).await {
             Ok(_) => {
-                log::info!("Successfully created collection '{}'.", self.collection_name);
+                log::info!(
+                    "Successfully created collection '{}'.",
+                    self.collection_name
+                );
                 Ok(())
             }
             Err(e) => {
-                log::error!("Failed to create collection '{}': {}", self.collection_name, e);
+                log::error!(
+                    "Failed to create collection '{}': {}",
+                    self.collection_name,
+                    e
+                );
                 Err(anyhow!("Failed to create collection: {}", e))
             }
         }
@@ -145,7 +169,11 @@ impl VectorDb {
             return Ok(());
         }
 
-        log::info!("Preparing to upsert {} documents into collection '{}'...", documents.len(), self.collection_name);
+        log::info!(
+            "Preparing to upsert {} documents into collection '{}'...",
+            documents.len(),
+            self.collection_name
+        );
 
         let points: Vec<PointStruct> = documents
             .iter()
@@ -186,22 +214,29 @@ impl VectorDb {
             .collect();
 
         if points.is_empty() {
-             log::warn!("No valid points could be prepared for upserting (input count: {}). Check serialization/conversion errors.", documents.len());
-             // Return Ok as no *upsert* operation failed, just preparation
-             return Ok(());
+            log::warn!("No valid points could be prepared for upserting (input count: {}). Check serialization/conversion errors.", documents.len());
+            // Return Ok as no *upsert* operation failed, just preparation
+            return Ok(());
         }
 
         let points_count = points.len();
-        log::info!("Upserting {} valid points into collection '{}'...", points_count, self.collection_name);
+        log::info!(
+            "Upserting {} valid points into collection '{}'...",
+            points_count,
+            self.collection_name
+        );
 
-        let upsert_builder = UpsertPointsBuilder::new(self.collection_name.clone(), points)
-             .wait(true);
+        let upsert_builder =
+            UpsertPointsBuilder::new(self.collection_name.clone(), points).wait(true);
 
         match self.client.upsert_points(upsert_builder).await {
             Ok(response) => {
                 log::debug!("Upsert response: {:?}", response);
                 if let Some(result) = response.result {
-                     log::info!("Upsert operation completed with status: {:?}", result.status());
+                    log::info!(
+                        "Upsert operation completed with status: {:?}",
+                        result.status()
+                    );
                 } else {
                     log::warn!("Upsert response did not contain result details.");
                 }
@@ -210,15 +245,24 @@ impl VectorDb {
                 Ok(())
             }
             Err(e) => {
-                log::error!("Failed to upsert points into collection '{}': {}", self.collection_name, e);
+                log::error!(
+                    "Failed to upsert points into collection '{}': {}",
+                    self.collection_name,
+                    e
+                );
                 Err(anyhow!("Qdrant upsert failed: {}", e))
             }
         }
     }
 
     /// Searches for documents in the Qdrant collection and returns domain SearchResult.
-    pub async fn search_impl(&self, query_vector: Vec<f32>, limit: usize, score_threshold: Option<f32>) -> Result<Vec<SearchResult>> {
-         if query_vector.len() as u64 != self.vector_size {
+    pub async fn search_impl(
+        &self,
+        query_vector: Vec<f32>,
+        limit: usize,
+        score_threshold: Option<f32>,
+    ) -> Result<Vec<SearchResult>> {
+        if query_vector.len() as u64 != self.vector_size {
             return Err(anyhow!(
                 "Query vector dimension ({}) does not match collection dimension ({})",
                 query_vector.len(),
@@ -226,17 +270,27 @@ impl VectorDb {
             ));
         }
 
-        log::info!("Searching in collection '{}' with limit {}...", self.collection_name, limit);
+        log::info!(
+            "Searching in collection '{}' with limit {}...",
+            self.collection_name,
+            limit
+        );
 
         let search_request = SearchPoints {
             collection_name: self.collection_name.clone(),
             vector: query_vector,
             limit: limit as u64,
-            with_payload: Some(WithPayloadSelector { // Request payload
-                 selector_options: Some(qdrant_client::qdrant::with_payload_selector::SelectorOptions::Enable(true)),
+            with_payload: Some(WithPayloadSelector {
+                // Request payload
+                selector_options: Some(
+                    qdrant_client::qdrant::with_payload_selector::SelectorOptions::Enable(true),
+                ),
             }),
-            with_vectors: Some(WithVectorsSelector{ // Don't need vectors in result
-                 selector_options: Some(qdrant_client::qdrant::with_vectors_selector::SelectorOptions::Enable(false)),
+            with_vectors: Some(WithVectorsSelector {
+                // Don't need vectors in result
+                selector_options: Some(
+                    qdrant_client::qdrant::with_vectors_selector::SelectorOptions::Enable(false),
+                ),
             }),
             score_threshold,
             ..Default::default()
@@ -246,7 +300,10 @@ impl VectorDb {
 
         match self.client.search_points(search_request).await {
             Ok(response) => {
-                log::info!("Search completed successfully, found {} potential results.", response.result.len());
+                log::info!(
+                    "Search completed successfully, found {} potential results.",
+                    response.result.len()
+                );
 
                 // Map ScoredPoint to domain::SearchResult
                 let search_results: Vec<SearchResult> = response.result.into_iter()
@@ -279,11 +336,18 @@ impl VectorDb {
                     })
                     .collect();
 
-                log::info!("Successfully mapped {} results to SearchResult.", search_results.len());
+                log::info!(
+                    "Successfully mapped {} results to SearchResult.",
+                    search_results.len()
+                );
                 Ok(search_results)
             }
             Err(e) => {
-                 log::error!("Qdrant search failed in collection '{}': {}", self.collection_name, e);
+                log::error!(
+                    "Qdrant search failed in collection '{}': {}",
+                    self.collection_name,
+                    e
+                );
                 Err(anyhow!("Qdrant search failed: {}", e))
             }
         }
@@ -291,28 +355,38 @@ impl VectorDb {
 
     // Helper function to convert Qdrant Payload map to serde_json::Value
     // Returns Option<Value> because conversion might fail for a point
-    fn qdrant_payload_to_serde_value(payload_map: std::collections::HashMap<String, qdrant_client::qdrant::Value>) -> Option<serde_json::Value> {
+    fn qdrant_payload_to_serde_value(
+        payload_map: std::collections::HashMap<String, qdrant_client::qdrant::Value>,
+    ) -> Option<serde_json::Value> {
         let mut json_map = serde_json::Map::new();
         for (key, qdrant_value) in payload_map {
             let json_value = match qdrant_value.kind {
                 Some(QdrantValueKind::NullValue(_)) => serde_json::Value::Null,
                 Some(QdrantValueKind::BoolValue(b)) => serde_json::Value::Bool(b),
-                Some(QdrantValueKind::DoubleValue(d)) => serde_json::Number::from_f64(d).map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null),
+                Some(QdrantValueKind::DoubleValue(d)) => serde_json::Number::from_f64(d)
+                    .map(serde_json::Value::Number)
+                    .unwrap_or(serde_json::Value::Null),
                 Some(QdrantValueKind::IntegerValue(i)) => serde_json::Value::Number(i.into()),
                 Some(QdrantValueKind::StringValue(s)) => serde_json::Value::String(s),
                 Some(QdrantValueKind::ListValue(list)) => {
                     // Recursively convert list elements
-                    let json_list: Vec<serde_json::Value> = list.values.into_iter()
-                        .filter_map(|v| Self::qdrant_payload_to_serde_value(std::collections::HashMap::from([("inner".to_string(), v)])))
+                    let json_list: Vec<serde_json::Value> = list
+                        .values
+                        .into_iter()
+                        .filter_map(|v| {
+                            Self::qdrant_payload_to_serde_value(std::collections::HashMap::from([
+                                ("inner".to_string(), v),
+                            ]))
+                        })
                         .map(|v| v.get("inner").unwrap_or(&serde_json::Value::Null).clone())
                         .collect();
                     serde_json::Value::Array(json_list)
                 }
-                 Some(QdrantValueKind::StructValue(s)) => {
-                     // Recursively convert struct fields
+                Some(QdrantValueKind::StructValue(s)) => {
+                    // Recursively convert struct fields
                     let inner_map = s.fields;
                     Self::qdrant_payload_to_serde_value(inner_map)? // Use Option chaining
-                 }
+                }
                 None => serde_json::Value::Null,
             };
             json_map.insert(key, json_value);
@@ -330,40 +404,13 @@ impl VectorRepository for VectorDb {
     }
 
     /// Implements search from the trait.
-    async fn search(&self, query_vector: Vec<f32>, limit: usize, score_threshold: Option<f32>) -> Result<Vec<SearchResult>> {
+    async fn search(
+        &self,
+        query_vector: Vec<f32>,
+        limit: usize,
+        score_threshold: Option<f32>,
+    ) -> Result<Vec<SearchResult>> {
         // Delegate to the implementation method
         self.search_impl(query_vector, limit, score_threshold).await
     }
-}
-
-// Use OnceCell for async initialization of the container URL and the container itself
-static QDRANT_CONTAINER: OnceCell<ContainerAsync<GenericImage>> = OnceCell::const_new();
-static QDRANT_URL: OnceCell<String> = OnceCell::const_new();
-
-// Helper function to initialize and get the container and URL
-async fn get_qdrant_url() -> Result<&'static str> {
-    // Use get_or_try_init for async initialization
-    let _container = QDRANT_CONTAINER.get_or_try_init(|| async {
-        println!("Initializing Qdrant container for tests...");
-        let image = GenericImage::new("qdrant/qdrant", "latest")
-            .with_wait_for(WaitFor::message_on_stderr("Actix runtime found; starting in Actix runtime"))
-            .with_exposed_port(testcontainers::core::ContainerPort::Tcp(6334)); // Fix: Use ContainerPort::Tcp
-        let container = image.start().await?;
-        println!("Qdrant container started.");
-        Ok::<_, anyhow::Error>(container)
-    }).await?;
-
-    // Get or initialize the URL after the container is confirmed running
-    let url = QDRANT_URL.get_or_try_init(|| async {
-        println!("Getting Qdrant URL...");
-        // Access the container through the OnceCell
-        let container = QDRANT_CONTAINER.get().expect("Container should be initialized");
-        let http_port = container.get_host_port_ipv4(6334).await?;
-        let qdrant_url = format!("http://localhost:{}", http_port);
-        println!("Qdrant container ready at: {}", qdrant_url);
-        Ok::<_, anyhow::Error>(qdrant_url)
-    }).await?;
-
-    // OnceCell ensures the String lives for 'static
-    Ok(url.as_str())
 }

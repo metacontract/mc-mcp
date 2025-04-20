@@ -1,7 +1,7 @@
 use mc_mcp::infrastructure::embedding::EmbeddingGenerator;
+use mc_mcp::infrastructure::file_system::load_documents_from_source;
 use mc_mcp::infrastructure::vector_db::DocumentToUpsert;
 use mc_mcp::infrastructure::EmbeddingModel;
-use mc_mcp::infrastructure::file_system::load_documents_from_source;
 use std::env;
 use std::fs::File;
 use std::io::Write;
@@ -35,7 +35,9 @@ fn main() -> anyhow::Result<()> {
 
     for (file_path, content) in &documents {
         let chunks = chunk_document(file_path, content);
-        if chunks.is_empty() { continue; }
+        if chunks.is_empty() {
+            continue;
+        }
         let chunk_slices: Vec<&str> = chunks.iter().map(AsRef::as_ref).collect();
         let embeddings = embedder.generate_embeddings(&chunk_slices)?;
         for (chunk_content, vector) in chunks.into_iter().zip(embeddings.into_iter()) {

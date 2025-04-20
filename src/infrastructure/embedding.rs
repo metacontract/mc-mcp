@@ -1,6 +1,5 @@
-use fastembed::{TextEmbedding, InitOptions, Error as FastEmbedError, EmbeddingModel};
+use fastembed::{EmbeddingModel, Error as FastEmbedError, InitOptions, TextEmbedding};
 use serde::{Deserialize, Serialize};
-use serial_test::serial;
 
 /// A struct responsible for generating text embeddings using a pre-initialized model.
 pub struct EmbeddingGenerator {
@@ -45,20 +44,17 @@ pub struct DocumentToUpsert {
     pub file_path: String,
     pub vector: Vec<f32>,
     pub source: String, // 追加: ドキュメントソース情報
-    // Text content might be useful here too for context, but payload only needs file_path for now
-    // pub text_content: String,
+                        // Text content might be useful here too for context, but payload only needs file_path for now
+                        // pub text_content: String,
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
 
     // Basic test to ensure initialization and embedding works
     // Note: This test might download model data on first run
     #[test]
-    #[serial]
     fn test_embedding_generator_init_and_embed() -> Result<(), FastEmbedError> {
         let model_name = EmbeddingModel::AllMiniLML6V2; // Use EmbeddingModel directly
         let generator = EmbeddingGenerator::new(model_name.clone())?;
@@ -69,12 +65,14 @@ mod tests {
         assert_eq!(embeddings.len(), 2);
         // Check embedding dimension for the specific model (e.g., 384 for all-MiniLM-L6-v2)
         // This requires knowing the expected dimension.
-        let expected_dim = TextEmbedding::list_supported_models().iter()
+        let expected_dim = TextEmbedding::list_supported_models()
+            .iter()
             .find(|m| m.model == model_name)
             .map(|m| m.dim)
             .unwrap_or(0); // Handle case where model info might not be found
 
-        if expected_dim > 0 { // Only assert if we found the dimension
+        if expected_dim > 0 {
+            // Only assert if we found the dimension
             assert_eq!(embeddings[0].len(), expected_dim);
             assert_eq!(embeddings[1].len(), expected_dim);
         }

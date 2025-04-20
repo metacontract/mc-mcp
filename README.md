@@ -9,8 +9,12 @@ A Model Context Protocol (MCP) server for the [metacontract (mc)](https://github
 **mc-mcp** is an extensible MCP server designed for the [metacontract](https://github.com/metacontract/mc) (mc) framework.
 It enables AI-powered smart contract development workflows by exposing tools such as:
 
-- **`forge_test`**: Run Foundry tests (`forge test`) in your workspace.
-- **`search_docs`**: Perform semantic search over mc documentation and user-configured sources, returning structured JSON results.
+- **`mc_search_docs`**: Perform semantic search over mc documentation and user-configured sources, returning structured JSON results.
+- **`mc_test`**: Run Foundry tests (`forge test`) in your workspace.
+- **`mc_setup`**: Initialize a new Foundry project using the `metacontract/template` (requires an empty directory).
+- **`mc_deploy`**: Deploy contracts using the script specified in `mcp_config.toml`. Supports dry-run (default) and broadcast mode (`broadcast: true` argument).
+- **`mc_upgrade`**: Upgrade contracts using the script specified in `mcp_config.toml`. Supports dry-run and broadcast mode.
+- **`mc_lint`**: (Coming Soon) Lint project files for best practices and errors.
 
 ---
 
@@ -105,15 +109,18 @@ See [RooCode's documentation](https://github.com/RooVetGit/Roo-Code) for details
 ### 5. Develop your smart contract
 
 - Use your MCP-compatible Agent/IDE to interact with mc-mcp
-- Design, search docs, and run TDD cycles (`forge_test`, `search_docs`, etc.)
+- Design, search docs, and run TDD cycles (`mc_test`, `mc_search_docs`, etc.)
 
 ### Configuration Example
 
 Create a file named `mcp_config.toml` in your project root:
 
 ```toml
+# Reference sources for semantic search
 [reference]
-prebuilt_index_path = "artifacts/prebuilt_index.jsonl.gz"
+# The prebuilt index is downloaded to the system cache directory by default.
+# You can override the path here if needed:
+# prebuilt_index_path = "/custom/path/to/prebuilt_index.jsonl.gz"
 
 [[reference.sources]]
 name = "mc-docs"
@@ -129,10 +136,21 @@ path = "docs/solidity"
 name = "user-docs"
 source_type = "local"
 path = "docs/user"
+
+# Default scripts used by tools
+[scripts]
+deploy = "scripts/Deploy.s.sol"  # Used by mc_deploy
+upgrade = "scripts/Upgrade.s.sol" # Used by mc_upgrade
+
+# Optional: Settings for broadcasting transactions (used when broadcast=true)
+rpc_url = "http://localhost:8545" # RPC endpoint URL
+private_key_env_var = "PRIVATE_KEY" # Name of the env var holding the deployer's private key
 ```
 
-- `prebuilt_index_path` ... (optional) Path to a prebuilt index (jsonl or gzipped jsonl). If set, it will be loaded and upserted into Qdrant on startup.
+- `prebuilt_index_path` ... (optional) Path to a prebuilt index (jsonl or gzipped jsonl). If set, it overrides the default cache location. The index will be loaded and upserted into Qdrant on startup.
 - Each `[[reference.sources]]` must have `name`, `source_type` (usually `local`), and `path` (relative to the execution directory).
+- `[scripts].deploy` and `[scripts].upgrade` specify the default Foundry script paths used by the `mc_deploy` and `mc_upgrade` tools respectively.
+- `[scripts].rpc_url` and `[scripts].private_key_env_var` are required when using `mc_deploy` or `mc_upgrade` with the `broadcast: true` argument. `forge` will use these to send the transaction.
 - All paths must exist and be directories, or indexing will fail.
 
 See also: [config.rs](src/config.rs) for the full config structure.
@@ -151,8 +169,45 @@ See also: [config.rs](src/config.rs) for the full config structure.
 ## Development
 
 - **TDD**: Test-Driven Development is enforced (unit/integration tests)
-- **Integration tests**: Use [testcontainers](https://github.com/testcontainers/testcontainers-rs) for Qdrant
+- **Integration tests**: Use [testcontainers](https://github.com/testcontainers/testcontainers-rs) for Qdrant, ensuring isolated and stable test environments.
 - **CI/CD**: GitHub Actions for build, test, and prebuilt index artifact management
+
+## Testing & Troubleshooting
+
+Some tests (especially integration tests and embedding-related tests) may fail due to OS file descriptor limits or cache lock issues.
+
+### Common Commands (via Makefile)
+
+- **Unit tests (lib only, with cache lock cleanup, single-threaded):**
+  ```sh
+  make test-lib
+  ```
+- **All tests (recommended: increase ulimit before running):**
+  ```sh
+  ulimit -n 4096
+  make test-all
+  ```
+- **Integration tests (single-threaded):**
+  ```sh
+  make test-integration
+  ```
+- **Clean embedding model cache:**
+  ```sh
+  make clean-cache
+  ```
+
+### Troubleshooting
+
+- **If you see `Too many open files` errors:**
+  - Increase the file descriptor limit in your shell *before* running tests: `ulimit -n 4096`
+  - Run tests sequentially: `cargo test -- --test-threads=1` (or use `make test-lib` / `make test-integration`)
+- **If you see `.lock` errors (related to embedding model cache):**
+  - Clean the cache: `make clean-cache`
+- **If tests involving `forge` commands fail unexpectedly:**
+  - Ensure the mock script setup within the specific test file (`src/main.rs` tests) is correct.
+- **Note:**
+  - The Makefile provides handy shortcuts for common tasks, but some OS or CI environments may require manual adjustment of file descriptor limits (`ulimit`).
+  - See each Makefile target for details.
 
 ---
 
