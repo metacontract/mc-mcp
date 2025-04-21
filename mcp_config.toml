@@ -22,3 +22,7 @@
 [scripts]
 deploy = "scripts/Deploy.s.sol" # Default deploy script path
 # upgrade = "scripts/Upgrade.s.sol" # Example for upgrade script later
+
+[setup]
+# If true, mc_setup will force setup even if files exist in the directory.
+force = true

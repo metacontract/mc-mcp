@@ -564,7 +564,7 @@ impl MyHandler {
     /// This tool only works if the current directory is empty.
     /// It runs `forge init . -t metacontract/template`.
     #[tool(
-        description = "Initialize a new Foundry project using a template. Only works in an empty directory."
+        description = "Initialize a new Foundry project using a template. Only works in an empty directory unless [setup].force = true in config."
     )]
     pub async fn mc_setup(&self) -> Result<CallToolResult, McpError> {
         use std::env;
@@ -578,26 +578,33 @@ impl MyHandler {
             McpError::internal_error(format!("Failed to read current dir: {e}"), None)
         })?;
         let is_empty = entries.into_iter().next().is_none();
-        if !is_empty {
+        let force = self.config.setup.force;
+        if !force && !is_empty {
+            // If not forcing and directory is not empty, return error
             return Ok(CallToolResult::error(vec![Content::text(
-                "The current directory is not empty. Please run setup in a new directory.",
+                "The current directory is not empty. Please run setup in a new directory or set [setup].force = true in mcp_config.toml.",
             )]));
         }
+        if force && !is_empty {
+            log::warn!("[setup.force=true] Forcing setup: existing files in the directory may be overwritten.");
+        }
         // 2. Run forge init . -t <repo>
-        // テンプレートキャッシュが指定されていればローカルパスを使う
+        // Use local template cache if specified
         let template_arg = if let Ok(local_template) = std::env::var("MC_TEMPLATE_CACHE") {
-            // Foundryはローカルパスも-tで受け付ける
             local_template
         } else {
             MC_TEMPLATE_REPO.to_string()
         };
 
         // Use output() to capture stderr as well
-        let output_result = Command::new("forge")
-            .args(["init", ".", "-t", &template_arg])
-            .output(); // Use output() instead of status(), remove .await and ?
+        let mut cmd = Command::new("forge");
+        cmd.args(["init", ".", "-t", &template_arg]);
+        if force {
+            cmd.arg("--no-git");
+        }
+        let output_result = cmd.output();
 
-        match output_result { // Use match to handle the Result<Output, Error>
+        match output_result {
             Ok(output_result) => {
                 if output_result.status.success() {
                     Ok(CallToolResult::success(vec![Content::text(format!(
@@ -614,10 +621,10 @@ impl MyHandler {
                     Ok(CallToolResult::error(vec![Content::text(err_msg)]))
                 }
             }
-            Err(e) => { // Handle the command execution error explicitly
+            Err(e) => {
                 let err_msg = format!("Failed to execute forge init command: {}. Make sure 'forge' is installed and in PATH.", e);
                 log::error!("mc_setup failed to execute forge: {}", e);
-                Ok(CallToolResult::error(vec![Content::text(err_msg)])) // Return CallToolResult::error
+                Ok(CallToolResult::error(vec![Content::text(err_msg)]))
             }
         }
     }
@@ -1806,6 +1813,36 @@ fi
         assert!(!call_result.content.is_empty());
         let error_text = &call_result.content[0].raw.as_text().expect("Expected text").text;
         assert!(error_text.contains("requires a private key environment variable name configured"));
+    }
+
+    #[tokio::test]
+    async fn test_setup_force_true_allows_non_empty_dir() {
+        use std::fs;
+        use tempfile::tempdir;
+        // Create a temporary non-empty directory
+        let temp_dir = tempdir().unwrap();
+        let dummy_path = temp_dir.path().join("dummy.txt");
+        fs::write(&dummy_path, "hello").unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp_dir.path()).unwrap();
+
+        // Set up config with force = true
+        let config = McpConfig {
+            setup: mc_mcp::config::SetupConfig { force: true },
+            ..Default::default()
+        };
+        let handler = MyHandler {
+            reference_service_state: Arc::new(Mutex::new(None)),
+            config: Arc::new(config),
+        };
+
+        let result = handler.mc_setup().await;
+        assert!(result.is_ok());
+        let call_result = result.unwrap();
+        assert_eq!(call_result.is_error, Some(false), "Expected success with force=true");
+
+        // Restore original directory
+        std::env::set_current_dir(original_dir).unwrap();
     }
 
 }

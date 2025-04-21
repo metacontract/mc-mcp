@@ -81,12 +81,21 @@ pub struct ScriptsConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct SetupConfig {
+    /// If true, mc_setup will force setup even if files exist in the directory.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct McpConfig {
     #[serde(default)]
     pub reference: ReferenceConfig,
-    // Add the new scripts config section
     #[serde(default)]
     pub scripts: ScriptsConfig,
+    /// Setup-related configuration
+    #[serde(default)]
+    pub setup: SetupConfig,
     // Add other config sections like ToolConfig later
 }
 
@@ -112,19 +121,31 @@ impl Default for ReferenceConfig {
 
 // Example function to load config (will be used in main.rs)
 pub fn load_config() -> Result<McpConfig> {
+    // Support MCP_CONFIG_PATH env var for config file path
+    let config_path_env = std::env::var("MCP_CONFIG_PATH").ok();
+    let config_path = config_path_env.clone().unwrap_or_else(|| "mcp_config.toml".to_string());
+
+    if let Some(ref env_path) = config_path_env {
+        if !std::path::Path::new(env_path).exists() {
+            return Err(anyhow::anyhow!("Config file not found at MCP_CONFIG_PATH: {}", env_path));
+        }
+        log::info!("MCP_CONFIG_PATH is set: {}", env_path);
+    } else {
+        log::info!("MCP_CONFIG_PATH not set, falling back to default: {}", config_path);
+    }
     // Use ReferenceConfig::default() to get defaults including calculated paths
     let default_config = McpConfig {
         reference: ReferenceConfig::default(),
         scripts: ScriptsConfig::default(), // Use default for scripts
+        setup: SetupConfig::default(),
     };
 
     let figment = Figment::new()
         // Start with our programmatically defined defaults
         .merge(Serialized::defaults(default_config)) // Use our instance
-        // Merge TOML file if it exists (REMOVE .nested())
-        .merge(Toml::file("mcp_config.toml"))
+        // Merge TOML file if it exists
+        .merge(Toml::file(&config_path))
         // Merge environment variables prefixed with MCP_
-        // Use double underscores for nesting (e.g., MCP_REFERENCE__SOURCES__0__NAME="...")
         .merge(Env::prefixed("MCP_").split("__"));
 
     let config: McpConfig = figment.extract().context("Failed to extract McpConfig")?;
