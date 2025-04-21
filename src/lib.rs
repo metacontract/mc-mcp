@@ -3,6 +3,8 @@ pub mod config;
 /// Declare modules and make them public
 pub mod domain;
 pub mod infrastructure;
+pub mod initialization;
+pub mod server;
 
 /// Re-export necessary items for main.rs and tests
 pub use application::reference_service::ReferenceServiceImpl;
@@ -14,3 +16,7 @@ pub use fastembed::EmbeddingModel;
 pub use infrastructure::embedding::EmbeddingGenerator;
 pub use infrastructure::file_system;
 pub use infrastructure::vector_db::{qdrant_client, DocumentToUpsert, VectorDb}; // Make DocumentToUpsert public for tests // Make file_system public for load_prebuilt_index
+
+// Constants used across modules (like in handler's mc_setup)
+// Define them here if they are truly shared constants
+pub const MC_TEMPLATE_REPO: &str = "metacontract/template";

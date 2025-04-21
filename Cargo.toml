@@ -51,6 +51,10 @@ reqwest = { version = "0.12.4", features = ["blocking", "json", "gzip"] }
 ureq = "2"
 tempfile = "3.10.1"
 
+# Add missing dependencies
+thiserror = "1.0"
+toml = "0.8"
+
 [dev-dependencies]
 # From application
 tempfile = "3.10.1" # Keep specific version from application? Or use infra's "3"? Let's use 3.10.1 for now.
