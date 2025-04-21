@@ -24,6 +24,9 @@ fix:
 coverage:
 	cargo tarpaulin --out Html --output-dir target/tarpaulin
 
+build:
+	cargo build --release
+
 build-index:
 	run --bin build_index -- --index-name=test_index
 
