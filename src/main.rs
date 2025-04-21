@@ -1848,6 +1848,7 @@ fi
 }
 
 fn ensure_qdrant_via_docker() -> Result<(), String> {
+    const QDRANT_CONTAINER_NAME: &str = "mc-mcp-qdrant";
     // 1. Check if Docker is installed
     let docker_check = std::process::Command::new("docker")
         .arg("--version")
@@ -1856,23 +1857,38 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
         return Err("Docker is not installed".to_string());
     }
 
-    // 2. Check if Qdrant container is already running
+    // 2. Check if Qdrant container already exists (any state)
     let ps = std::process::Command::new("docker")
-        .args(["ps", "--filter", "name=qdrant", "--format", "{{.Names}}"])
+        .args(["ps", "-a", "--filter", &format!("name={}", QDRANT_CONTAINER_NAME), "--format", "{{.Status}}"])
         .output()
         .map_err(|e| format!("Failed to execute docker ps: {e}"))?;
     let ps_stdout = String::from_utf8_lossy(&ps.stdout);
-    if ps_stdout.contains("qdrant") {
-        log::info!("✅ Qdrant is already running in Docker.");
+    if ps_stdout.contains("Up") {
+        log::info!("✅ Qdrant container '{}' is already running.", QDRANT_CONTAINER_NAME);
+    } else if !ps_stdout.trim().is_empty() {
+        // Exists but not running (e.g. Exited)
+        log::info!("Qdrant container '{}' exists but is not running. Starting it...", QDRANT_CONTAINER_NAME);
+        let start = std::process::Command::new("docker")
+            .args(["start", QDRANT_CONTAINER_NAME])
+            .output()
+            .map_err(|e| format!("Failed to execute docker start: {e}"))?;
+        if !start.status.success() {
+            return Err(format!(
+                "Failed to start Qdrant container '{}': {}",
+                QDRANT_CONTAINER_NAME,
+                String::from_utf8_lossy(&start.stderr)
+            ));
+        }
+        log::info!("Qdrant container '{}' started.", QDRANT_CONTAINER_NAME);
     } else {
-        // 3. Start Qdrant container
-        log::info!("Qdrant container not found. Starting Qdrant in Docker...");
+        // Not found, run new container
+        log::info!("Qdrant container '{}' not found. Creating and starting new container...", QDRANT_CONTAINER_NAME);
         let run = std::process::Command::new("docker")
             .args([
                 "run",
                 "-d",
                 "--name",
-                "qdrant",
+                QDRANT_CONTAINER_NAME,
                 "-p",
                 "6333:6333",
                 "-p",
@@ -1883,18 +1899,17 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
             .map_err(|e| format!("Failed to execute docker run: {e}"))?;
         if !run.status.success() {
             return Err(format!(
-                "Failed to start Qdrant container: {}",
+                "Failed to start Qdrant container '{}': {}",
+                QDRANT_CONTAINER_NAME,
                 String::from_utf8_lossy(&run.stderr)
             ));
         }
-        log::info!("Qdrant container started.");
+        log::info!("Qdrant container '{}' created and started.", QDRANT_CONTAINER_NAME);
     }
 
-    // 4. Health check (HTTP endpoint retry) - Consider making this async if needed elsewhere
+    // 3. Health check (HTTP endpoint retry)
     let endpoint = "http://localhost:6333/collections";
     for i in 1..=5 {
-        // ureq::get is blocking, fine for this initial check for now
-        // If this becomes a bottleneck, replace with reqwest or similar async client
         match ureq::get(endpoint)
             .timeout(std::time::Duration::from_millis(1000))
             .call()
@@ -1903,22 +1918,16 @@ fn ensure_qdrant_via_docker() -> Result<(), String> {
                 log::info!("✅ Qdrant is running and connected!");
                 return Ok(());
             }
-            Ok(resp) => { // Added logging for non-200 status
+            Ok(resp) => {
                 log::warn!("Qdrant check returned status: {}", resp.status());
-                 log::info!("Waiting for Qdrant to start... (Retry {i}/5)");
-                 std::thread::sleep(std::time::Duration::from_secs(2)); // Keep sync sleep here
+                log::info!("Waiting for Qdrant to start... (Retry {i}/5)");
+                std::thread::sleep(std::time::Duration::from_secs(2));
             }
-            Err(e) => { // Added logging for connection errors
+            Err(e) => {
                 log::warn!("Qdrant check connection error: {}", e);
                 log::info!("Waiting for Qdrant to start... (Retry {i}/5)");
-                std::thread::sleep(std::time::Duration::from_secs(2)); // Keep sync sleep here
+                std::thread::sleep(std::time::Duration::from_secs(2));
             }
-            /* // Original logic:
-            _ => {
-                log::info!("Waiting for Qdrant to start... (Retry {i}/5)");
-                std::thread::sleep(std::time::Duration::from_secs(2)); // Keep sync sleep here
-            }
-            */
         }
     }
     Err("Failed to connect to Qdrant after retries. Check Docker and network settings.".to_string())
