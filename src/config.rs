@@ -121,17 +121,20 @@ impl Default for ReferenceConfig {
 
 // Example function to load config (will be used in main.rs)
 pub fn load_config() -> Result<McpConfig> {
-    // Support MCP_CONFIG_PATH env var for config file path
-    let config_path_env = std::env::var("MCP_CONFIG_PATH").ok();
-    let config_path = config_path_env.clone().unwrap_or_else(|| "mcp_config.toml".to_string());
-
-    if let Some(ref env_path) = config_path_env {
-        if !std::path::Path::new(env_path).exists() {
-            return Err(anyhow::anyhow!("Config file not found at MCP_CONFIG_PATH: {}", env_path));
-        }
-        log::info!("MCP_CONFIG_PATH is set: {}", env_path);
+    // Always use MC_PROJECT_ROOT for config path
+    let project_root = std::env::var("MC_PROJECT_ROOT")
+        .map_err(|_| anyhow::anyhow!("MC_PROJECT_ROOT is not set. Please set MC_PROJECT_ROOT to your project root directory."))?;
+    let project_root_path = std::path::Path::new(&project_root);
+    if !project_root_path.exists() {
+        return Err(anyhow::anyhow!("MC_PROJECT_ROOT does not exist: {}", project_root));
+    }
+    let config_path = project_root_path.join("mcp_config.toml");
+    let config_file_exists = config_path.exists();
+    if config_file_exists {
+        log::info!("MC_PROJECT_ROOT is set: {}", project_root_path.display());
+        log::info!("Loading config from: {}", config_path.display());
     } else {
-        log::info!("MCP_CONFIG_PATH not set, falling back to default: {}", config_path);
+        log::warn!("Config file not found at: {}. Using defaults.", config_path.display());
     }
     // Use ReferenceConfig::default() to get defaults including calculated paths
     let default_config = McpConfig {
@@ -140,13 +143,13 @@ pub fn load_config() -> Result<McpConfig> {
         setup: SetupConfig::default(),
     };
 
-    let figment = Figment::new()
+    let mut figment = Figment::new()
         // Start with our programmatically defined defaults
-        .merge(Serialized::defaults(default_config)) // Use our instance
-        // Merge TOML file if it exists
-        .merge(Toml::file(&config_path))
-        // Merge environment variables prefixed with MCP_
-        .merge(Env::prefixed("MCP_").split("__"));
+        .merge(Serialized::defaults(default_config)); // Use our instance
+    if config_file_exists {
+        figment = figment.merge(Toml::file(&config_path));
+    }
+    figment = figment.merge(Env::prefixed("MCP_").split("__"));
 
     let config: McpConfig = figment.extract().context("Failed to extract McpConfig")?;
     validate_config(&config)?;

@@ -570,7 +570,20 @@ impl MyHandler {
         use std::env;
         use std::fs;
         use std::process::Command;
-        // 1. Check if current directory is empty
+        // 1. Get MC_PROJECT_ROOT and move to it
+        let project_root = std::env::var("MC_PROJECT_ROOT")
+            .map_err(|_| McpError::internal_error("MC_PROJECT_ROOT is not set. Please set MC_PROJECT_ROOT to your project root directory.", None))?;
+        let project_root_path = std::path::Path::new(&project_root);
+        if !project_root_path.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "MC_PROJECT_ROOT does not exist: {}", project_root
+            ))]));
+        }
+        std::env::set_current_dir(&project_root_path)
+            .map_err(|e| McpError::internal_error(format!("Failed to set current dir: {e}"), None))?;
+        log::info!("Changed working directory to MC_PROJECT_ROOT: {:?}", project_root_path);
+        // 2. Check if current directory is empty
+        log::info!("Current working directory for mc_setup: {:?}", env::current_dir());
         let current_dir = env::current_dir().map_err(|e| {
             McpError::internal_error(format!("Failed to get current dir: {e}"), None)
         })?;
@@ -588,7 +601,7 @@ impl MyHandler {
         if force && !is_empty {
             log::warn!("[setup.force=true] Forcing setup: existing files in the directory may be overwritten.");
         }
-        // 2. Run forge init . -t <repo>
+        // 3. Run forge init . -t <repo>
         // Use local template cache if specified
         let template_arg = if let Ok(local_template) = std::env::var("MC_TEMPLATE_CACHE") {
             local_template
@@ -596,12 +609,12 @@ impl MyHandler {
             MC_TEMPLATE_REPO.to_string()
         };
 
-        // Use output() to capture stderr as well
         let mut cmd = Command::new("forge");
         cmd.args(["init", ".", "-t", &template_arg]);
         if force {
             cmd.arg("--no-git");
         }
+        log::info!("Running forge init command: {:?}", cmd);
         let output_result = cmd.output();
 
         match output_result {
