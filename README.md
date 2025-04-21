@@ -42,6 +42,39 @@ It enables AI-powered smart contract development workflows by exposing tools suc
 
 ---
 
+## Configuration and Project Root
+
+**Project Root is always specified by the `MC_PROJECT_ROOT` environment variable.**
+
+- Set `MC_PROJECT_ROOT` to your project root directory before running any mc-mcp command or tool.
+- All configuration, including `mcp_config.toml`, is expected to be in this directory.
+- If `MC_PROJECT_ROOT` is not set or does not exist, mc-mcp will return an error and not start.
+- If `mcp_config.toml` is missing, mc-mcp will use built-in defaults and log a warning.
+
+### Example: Setting up and running mc-mcp
+
+```sh
+export MC_PROJECT_ROOT=/path/to/your/project
+mc-mcp
+```
+
+### Example: Project Structure
+
+```
+/path/to/your/project/
+├── mcp_config.toml   # (optional) Project configuration
+├── contracts/
+├── scripts/
+└── ...
+```
+
+### Configuration File (`mcp_config.toml`)
+- Place this file directly under your `MC_PROJECT_ROOT` directory.
+- If omitted, mc-mcp will use default settings for all configuration values.
+- See below for a sample config and field descriptions.
+
+---
+
 ## Getting Started
 
 ### 1. Install mc-mcp (as a CLI tool)

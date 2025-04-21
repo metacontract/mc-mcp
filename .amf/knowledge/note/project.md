@@ -55,7 +55,32 @@
     *   Artifacts: prebuilt_index.jsonl.gz (compressed, not in git)
     *   Download logic: always fetches latest from GitHub Releases if not present
 
-## 6. Usage & Distribution
+## 6. Project Root & Configuration
+
+- **The project root must always be specified via the `MC_PROJECT_ROOT` environment variable.**
+    - All commands and tools use this directory as the base for all operations.
+    - The configuration file (`mcp_config.toml`) must be placed directly under this directory.
+    - If `MC_PROJECT_ROOT` is not set or does not exist, mc-mcp will return an error and not start.
+    - If `mcp_config.toml` is missing, mc-mcp will start with built-in defaults and log a warning.
+
+### Example: Startup
+
+```sh
+export MC_PROJECT_ROOT=/path/to/your/project
+mc-mcp
+```
+
+### Example: Directory Structure
+
+```
+/path/to/your/project/
+├── mcp_config.toml   # (optional)
+├── contracts/
+├── scripts/
+└── ...
+```
+
+## 7. Usage & Distribution
 
 *   **crates.io:** Project is ready for crates.io publication (see mcp_config.toml)
 *   **Prebuilt index:** Not included in crate; always downloaded from GitHub Releases (latest)
