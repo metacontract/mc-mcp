@@ -6,11 +6,7 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use directories::ProjectDirs;
-use thiserror::Error;
-use toml;
 use log;
-use std::env;
-use std::fs;
 
 // Define a constant for the repository
 pub const GITHUB_REPO_OWNER: &str = "metacontract";
@@ -186,15 +182,15 @@ mod tests {
     use figment::Jail;
 
     fn set_mc_project_root(path: &std::path::Path) -> Option<String> {
-        let old = env::var("MC_PROJECT_ROOT").ok();
-        env::set_var("MC_PROJECT_ROOT", path);
+        let old = std::env::var("MC_PROJECT_ROOT").ok();
+        std::env::set_var("MC_PROJECT_ROOT", path);
         old
     }
     fn restore_mc_project_root(old: Option<String>) {
         if let Some(val) = old {
-            env::set_var("MC_PROJECT_ROOT", val);
+            std::env::set_var("MC_PROJECT_ROOT", val);
         } else {
-            env::remove_var("MC_PROJECT_ROOT");
+            std::env::remove_var("MC_PROJECT_ROOT");
         }
     }
 

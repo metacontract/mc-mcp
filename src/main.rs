@@ -18,7 +18,7 @@ use tokio::{
 
 // Import specific items needed in main
 use mc_mcp::config; // Keep for config loading
-use mc_mcp::config::McpConfig; // Keep for config type
+// use mc_mcp::config::McpConfig; // unused, remove
 use mc_mcp::initialization::initialize_background_services; // Use new initialization module
 use mc_mcp::server::handler::MyHandler; // Use new handler module
 
