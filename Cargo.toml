@@ -9,15 +9,7 @@ repository = "https://github.com/metacontract/mc-mcp"
 homepage = "https://github.com/metacontract/mc-mcp"
 documentation = "https://docs.rs/mc-mcp"
 readme = "README.md"
-keywords = [
-  "smart-contract",
-  "evm",
-  "metacontract",
-  "foundry",
-  "mcp",
-  "semantic-search",
-  "server",
-]
+keywords = ["smart-contract", "evm", "metacontract", "foundry", "mcp"]
 categories = ["command-line-utilities", "development-tools"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
