@@ -57,6 +57,12 @@ struct McUpgradeArgs {
     broadcast: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct Erc7201SlotArgs {
+    #[schemars(description = "ERC7201 namespace.slot (e.g. NFT.ERC721State)")]
+    slot: String,
+}
+
 #[tool(tool_box)]
 impl MyHandler {
     /// Creates a new handler instance with uninitialized service state.
@@ -442,6 +448,46 @@ Stderr:
         let broadcast = args.broadcast.unwrap_or(false);
         self.run_forge_script("upgrade", broadcast).await
     }
+
+    /// Calculates ERC7201 storage slot using Foundry's cast index-erc7201.
+    #[tool(description = "Calculate ERC7201 storage slot using Foundry's cast index-erc7201.")]
+    async fn mc_erc7201_slot(
+        &self,
+        #[tool(aggr)] args: Erc7201SlotArgs,
+    ) -> Result<CallToolResult, McpError> {
+        let slot = args.slot;
+        let output_result = tokio::process::Command::new("cast")
+            .args(["index-erc7201", &slot])
+            .output()
+            .await;
+
+        match output_result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                if output.status.success() {
+                    // 0xで始まり長さが66文字（0x+64バイト）でなければエラー扱い
+                    if stdout.starts_with("0x") && stdout.len() == 66 {
+                        Ok(CallToolResult::success(vec![Content::text(stdout)]))
+                    } else {
+                        Ok(CallToolResult::error(vec![Content::text(format!(
+                            "cast index-erc7201 returned invalid slot: '{}'.\nStderr:\n{}",
+                            stdout, stderr
+                        ))]))
+                    }
+                } else {
+                    Ok(CallToolResult::error(vec![Content::text(format!(
+                        "cast index-erc7201 failed: {:?}\n{}",
+                        output.status.code(), stderr
+                    ))]))
+                }
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to execute cast: {}",
+                e
+            ))])),
+        }
+    }
 }
 
 #[tool(tool_box)]
@@ -693,5 +739,4 @@ mod tests {
         let error_text = &result.content[0].raw.as_text().expect("Expected text").text;
         assert!(error_text.contains("service is still initializing"));
     }
-
 }

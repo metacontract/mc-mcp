@@ -1,5 +1,12 @@
+test: cache-template
+	cargo test --all --release -- --test-threads=1
+
 test-all: cache-template
 	cargo test --all --release -- --test-threads=1
+	cargo test --all --release -- --ignored --test-threads=1
+
+test-ignored: cache-template
+	cargo test --all --release -- --ignored --test-threads=1
 
 test-lib: cache-template
 	find .fastembed_cache -name '*.lock' -delete || true
