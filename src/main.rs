@@ -1048,6 +1048,8 @@ mod tests {
         let (handler, _) = setup_mock_handler();
         // Create a temporary empty directory for the test
         let temp_dir = tempfile::tempdir().unwrap();
+        let old = std::env::var("MC_PROJECT_ROOT").ok();
+        std::env::set_var("MC_PROJECT_ROOT", temp_dir.path());
 
         // Define path to mock_bin relative to project root *before* changing CWD
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -1096,7 +1098,7 @@ mod tests {
         // Cleanup
         std::env::set_var("PATH", original_path);
         std::env::set_current_dir(original_cwd).unwrap();
-
+        if let Some(val) = old { std::env::set_var("MC_PROJECT_ROOT", val); } else { std::env::remove_var("MC_PROJECT_ROOT"); }
         // Clean up mock script and dir (optional)
         // std::fs::remove_file(forge_script_path).ok();
         // std::fs::remove_dir_all(&mock_bin_path).ok();
@@ -1109,6 +1111,8 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         std::fs::write(temp_dir.path().join("dummy.txt"), "hello").unwrap();
         let original_dir = std::env::current_dir().unwrap(); // Store original dir
+        let old = std::env::var("MC_PROJECT_ROOT").ok();
+        std::env::set_var("MC_PROJECT_ROOT", temp_dir.path());
         std::env::set_current_dir(temp_dir.path()).unwrap();
 
         let result = handler.mc_setup().await; // Updated call
@@ -1121,8 +1125,9 @@ mod tests {
         let content_text = &call_result.content[0].raw.as_text().expect("Expected text content").text;
         assert!(content_text.contains("The current directory is not empty"));
 
-        // Restore original directory
+        // Restore original directory and env
         std::env::set_current_dir(original_dir).unwrap();
+        if let Some(val) = old { std::env::set_var("MC_PROJECT_ROOT", val); } else { std::env::remove_var("MC_PROJECT_ROOT"); }
     }
 
     #[tokio::test]
@@ -1837,6 +1842,8 @@ fi
         let dummy_path = temp_dir.path().join("dummy.txt");
         fs::write(&dummy_path, "hello").unwrap();
         let original_dir = std::env::current_dir().unwrap();
+        let old = std::env::var("MC_PROJECT_ROOT").ok();
+        std::env::set_var("MC_PROJECT_ROOT", temp_dir.path());
         std::env::set_current_dir(temp_dir.path()).unwrap();
 
         // Set up config with force = true
@@ -1854,8 +1861,9 @@ fi
         let call_result = result.unwrap();
         assert_eq!(call_result.is_error, Some(false), "Expected success with force=true");
 
-        // Restore original directory
+        // Restore original directory and env
         std::env::set_current_dir(original_dir).unwrap();
+        if let Some(val) = old { std::env::set_var("MC_PROJECT_ROOT", val); } else { std::env::remove_var("MC_PROJECT_ROOT"); }
     }
 
 }

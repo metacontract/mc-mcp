@@ -6,6 +6,8 @@ use figment::{
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use directories::ProjectDirs;
+use std::env;
+use std::fs;
 
 // Define a constant for the repository
 pub const GITHUB_REPO_OWNER: &str = "metacontract";
@@ -180,9 +182,24 @@ mod tests {
     #[cfg(test)]
     use figment::Jail;
 
+    fn set_mc_project_root(path: &std::path::Path) -> Option<String> {
+        let old = env::var("MC_PROJECT_ROOT").ok();
+        env::set_var("MC_PROJECT_ROOT", path);
+        old
+    }
+    fn restore_mc_project_root(old: Option<String>) {
+        if let Some(val) = old {
+            env::set_var("MC_PROJECT_ROOT", val);
+        } else {
+            env::remove_var("MC_PROJECT_ROOT");
+        }
+    }
+
     #[test]
     fn test_load_config_default() {
-        Jail::expect_with(|_jail| {
+        Jail::expect_with(|jail| {
+            let root = jail.directory();
+            let old = set_mc_project_root(root);
             // Need to mock or calculate the expected cache path for the test environment
             let expected_default_path = ProjectDirs::from("xyz", "ecdysis", "mc-mcp")
                 .map(|dirs| dirs.cache_dir().join("prebuilt_index.jsonl.gz"))
@@ -197,6 +214,7 @@ mod tests {
             // Check default scripts config
             assert!(config.scripts.deploy.is_none());
             assert!(config.scripts.upgrade.is_none());
+            restore_mc_project_root(old);
             Ok(())
         });
     }
@@ -204,6 +222,8 @@ mod tests {
     #[test]
     fn test_load_config_toml_only() {
         Jail::expect_with(|jail| {
+            let root = jail.directory();
+            let old = set_mc_project_root(root);
             jail.create_file(
                 "mcp_config.toml",
                 r#"
@@ -231,6 +251,7 @@ upgrade = "scripts/MyUpgrade.s.sol"
             // Check scripts config loaded from TOML
             assert_eq!(config.scripts.deploy, Some("scripts/MyDeploy.s.sol".to_string()));
             assert_eq!(config.scripts.upgrade, Some("scripts/MyUpgrade.s.sol".to_string()));
+            restore_mc_project_root(old);
             Ok(())
         });
     }
@@ -238,6 +259,8 @@ upgrade = "scripts/MyUpgrade.s.sol"
     #[test]
     fn test_load_config_env_only() {
         Jail::expect_with(|jail| {
+            let root = jail.directory();
+            let old = set_mc_project_root(root);
             jail.set_env("MCP_REFERENCE__PREBUILT_INDEX_PATH", "/env/index.idx");
             let sources_env_value = r#"[{ name = "env_docs", source_type = "local", path = "/env/docs" }]"#;
             jail.set_env("MCP_REFERENCE__SOURCES", sources_env_value);
@@ -261,7 +284,7 @@ upgrade = "scripts/MyUpgrade.s.sol"
             // Check new fields are None by default
             assert!(config.scripts.rpc_url.is_none());
             assert!(config.scripts.private_key_env_var.is_none());
-
+            restore_mc_project_root(old);
             Ok(())
         });
     }
@@ -269,6 +292,8 @@ upgrade = "scripts/MyUpgrade.s.sol"
     #[test]
     fn test_load_config_toml_without_prebuilt_path() {
         Jail::expect_with(|jail| {
+            let root = jail.directory();
+            let old = set_mc_project_root(root);
             jail.create_file(
                 "mcp_config.toml",
                 r#"
@@ -293,6 +318,7 @@ path = "./docs_folder"
             );
             assert_eq!(config.reference.sources.len(), 1);
             assert_eq!(config.reference.sources[0].name, "docs");
+            restore_mc_project_root(old);
             Ok(())
         });
     }
