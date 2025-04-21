@@ -1,36 +1,14 @@
-// NOTE: use statements adjusted for single-crate structure
 use crate::domain::reference::{SearchQuery, SearchResult};
-// Remove unused infra types/functions
-// use crate::infrastructure::{EmbeddingGenerator, VectorDb, DocumentPayload, load_documents, EmbeddingModel};
-use crate::infrastructure::EmbeddingGenerator; // Keep this one
-// Remove unused qdrant types
-// use crate::infrastructure::qdrant_client::qdrant::{point_id::PointIdOptions, value::Kind as QdrantValueKind};
+use crate::infrastructure::EmbeddingGenerator;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
-// Keep used log macros
 use log::{error, info, warn, debug};
-// Remove unused Value import
-// use serde_json::Value;
 
-// Remove Downcast import here, it should be in domain/reference.rs where the trait is defined
-// use downcast_rs::Downcast;
-
-// Assuming VectorRepository trait exists in domain
 use crate::domain::vector_repository::VectorRepository;
-// Import the actual ReferenceService trait from the domain module
 use crate::domain::reference::ReferenceService;
-// Remove unused ReferenceConfig
-// use crate::config::ReferenceConfig;
 use crate::config::{DocumentSource, SourceType, McpConfig};
-// Remove unused load_documents_from_multiple_sources
-// use crate::infrastructure::file_system::load_documents_from_multiple_sources;
 use crate::infrastructure::file_system::{load_documents_from_source, load_content_from_archive};
-// Use the concrete DocumentToUpsert from vector_db
 use crate::infrastructure::vector_db::DocumentToUpsert;
-// use async_trait::async_trait;
-// use serial_test::serial;
-// use std::time::SystemTime;
-// use std::path::Path;
 use futures::future::BoxFuture;
 use qdrant_client::qdrant::{PointStruct, ScoredPoint};
 
@@ -39,7 +17,6 @@ pub struct ReferenceServiceImpl {
     embedder: Arc<EmbeddingGenerator>,
     vector_db: Arc<dyn VectorRepository>,
     config: Arc<McpConfig>,
-    // Configuration might be needed, e.g., chunk size, model name
 }
 
 impl ReferenceServiceImpl {

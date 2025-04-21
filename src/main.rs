@@ -35,10 +35,10 @@ async fn main() -> Result<()> {
     log::info!("Starting MCP server listener...");
     let serve_future = handler.serve(transport);
 
-    // --- Start Background Initialization Task (using initialization module) ---
-    let init_config = config_arc.clone(); // Keep config clone
-    let initialization_complete = Arc::new(Notify::new()); // Keep notify
-    let init_complete_signal = initialization_complete.clone(); // Keep notify clone
+    // --- Start Background Initialization Task ---
+    let init_config = config_arc.clone();
+    let initialization_complete = Arc::new(Notify::new());
+    let init_complete_signal = initialization_complete.clone();
 
     tokio::spawn(async move {
         log::info!("Background initialization task started.");

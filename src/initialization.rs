@@ -1,5 +1,5 @@
 use crate::application::reference_service::ReferenceServiceImpl;
-use crate::config::{self, McpConfig}; // Import config and McpConfig
+use crate::config::{self, McpConfig};
 use crate::domain::reference::ReferenceService;
 use crate::domain::vector_repository::VectorRepository;
 use crate::file_system;
@@ -7,7 +7,7 @@ use crate::infrastructure::embedding::EmbeddingGenerator;
 use crate::infrastructure::file_system::download_if_not_exists;
 use crate::infrastructure::vector_db::{qdrant_client, VectorDb};
 use crate::infrastructure::EmbeddingModel;
-use crate::infrastructure::docker::ensure_qdrant_via_docker; // Import from new location
+use crate::infrastructure::docker::ensure_qdrant_via_docker;
 
 use anyhow::Result;
 use log;

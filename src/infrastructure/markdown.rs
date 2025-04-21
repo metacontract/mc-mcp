@@ -14,15 +14,15 @@ use comrak::{markdown_to_html, ComrakOptions};
 ///
 /// A String containing the plain text extracted from the Markdown.
 pub fn parse_markdown_to_text(markdown: &str) -> String {
-    // TODO: より効率的なテキスト抽出方法を検討 (HTMLを経由しない方法)
+    // TODO: Use a more efficient text extraction method (without HTML)
     let html = markdown_to_html(markdown, &ComrakOptions::default());
 
-    // HTML からテキストを抽出 (簡易的な方法)
-    // より堅牢なライブラリ (例: scraper) の使用も検討できる
+    // Extract text from HTML (simple method)
+    // Consider using a more robust library (e.g., scraper)
     html_to_text(&html)
 }
 
-// HTML文字列からタグを除去してテキストを抽出するヘルパー関数 (簡易版)
+// Helper function to extract text from HTML (simple method)
 fn html_to_text(html: &str) -> String {
     let mut result = String::new();
     let mut in_tag = false;
@@ -34,7 +34,7 @@ fn html_to_text(html: &str) -> String {
             _ => {}
         }
     }
-    // 簡単な空白の整形
+    // Simple whitespace formatting
     result.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
 
