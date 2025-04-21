@@ -24,7 +24,7 @@ use crate::domain::reference::ReferenceService;
 
 /// Handler for the MCP server logic.
 #[derive(Clone)]
-pub struct MyHandler {
+pub struct McpServerHandler {
     // Use Mutex<Option<...>> to hold the service, allowing it to be initialized later
     pub reference_service_state: Arc<Mutex<Option<Arc<dyn ReferenceService>>>>,
     pub config: Arc<McpConfig>,
@@ -64,7 +64,7 @@ struct Erc7201SlotArgs {
 }
 
 #[tool(tool_box)]
-impl MyHandler {
+impl McpServerHandler {
     /// Creates a new handler instance with uninitialized service state.
     pub fn new(config: Arc<McpConfig>) -> Self {
         Self {
@@ -491,7 +491,7 @@ Stderr:
 }
 
 #[tool(tool_box)]
-impl ServerHandler for MyHandler {
+impl ServerHandler for McpServerHandler {
     fn get_info(&self) -> ServerInfo {
         log::trace!("Entering get_info method..."); // <-- Add trace at the beginning of get_info
         ServerInfo {
@@ -634,9 +634,9 @@ mod tests {
     }
 
     // Helper function specific to handler unit tests
-    fn setup_handler_for_unit_test() -> (MyHandler, Arc<MockReferenceService>) {
+    fn setup_handler_for_unit_test() -> (McpServerHandler, Arc<MockReferenceService>) {
         let mock_service = Arc::new(MockReferenceService::default());
-        let handler = MyHandler {
+        let handler = McpServerHandler {
             reference_service_state: Arc::new(Mutex::new(Some(mock_service.clone()))),
             config: Arc::new(McpConfig::default()), // Use default config for unit tests
         };
@@ -644,8 +644,8 @@ mod tests {
     }
 
      // Helper function specific to handler unit tests with None state
-    fn setup_handler_initializing_for_unit_test() -> MyHandler {
-        MyHandler {
+    fn setup_handler_initializing_for_unit_test() -> McpServerHandler {
+        McpServerHandler {
             reference_service_state: Arc::new(Mutex::new(None)), // Start as None
             config: Arc::new(McpConfig::default()),
         }

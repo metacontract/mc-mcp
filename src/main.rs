@@ -1,26 +1,13 @@
-// NOTE: use statements will need adjustment after refactoring
-// use rmcp::serde_json::json; // Keep if needed elsewhere
-use rmcp::{
-    // model::{...}, // Keep only necessary models if any remain
-    // schemars::{self, JsonSchema}, // Keep if needed elsewhere
-    // service::RequestContext, // Keep if needed elsewhere
-    // tool, Error as McpError, RoleServer, ServerHandler, // Keep ServiceExt
-    ServiceExt, // Keep this if handler.serve() is used
-};
-// use serde::Deserialize; // Keep if needed elsewhere
-// use std::sync::{Arc, Mutex}; // Keep Arc, Mutex if needed for config_arc or other shared state
+use rmcp::ServiceExt;
 use std::sync::Arc;
 use tokio::{
     io::{stdin, stdout},
-    // process::Command, // Moved to handler
-    sync::Notify, // Keep for initialization signalling
+    sync::Notify,
 };
 
-// Import specific items needed in main
-use mc_mcp::config; // Keep for config loading
-// use mc_mcp::config::McpConfig; // unused, remove
-use mc_mcp::initialization::initialize_background_services; // Use new initialization module
-use mc_mcp::server::handler::MyHandler; // Use new handler module
+use mc_mcp::config;
+use mc_mcp::initialization::initialize_background_services;
+use mc_mcp::server::handler::McpServerHandler;
 
 use anyhow::Result;
 use env_logger;
@@ -39,9 +26,9 @@ async fn main() -> Result<()> {
     log::info!("Configuration loaded: {:?}", config);
     let config_arc = Arc::new(config);
 
-    // --- Initialize Handler (now from server::handler) ---
-    let handler = MyHandler::new(config_arc.clone());
-    let reference_service_state = handler.reference_service_state.clone(); // Still needed for background init
+    // --- Initialize Handler ---
+    let handler = McpServerHandler::new(config_arc.clone());
+    let reference_service_state = handler.reference_service_state.clone(); // for background init
 
     // --- Start MCP Server Immediately ---
     let transport = (stdin(), stdout());
